@@ -12,11 +12,11 @@ from backend.app.models import AuditLog, Evidence, HousingObject, Publication, S
 DEMO_EVIDENCE_SOURCES = {
     "demo-jk-001": {
         "R2": ("demo-ad-001", "депозитом 100 000 ₸"),
-        "R3": ("demo-ad-002", "Продажи квартир в строящемся ЖК Сарыарқа-01."),
+        "R3": ("demo-ad-002", "Продажи квартир в строящемся ЖК Күмбез-47."),
     },
     "demo-jk-002": {
         "R2": ("demo-ad-003", "внесите депозит 150 000 ₸"),
-        "R3": ("demo-ad-004", "Старт продаж квартир в ЖК Өскемен River."),
+        "R3": ("demo-ad-004", "Старт продаж квартир в ЖК Қоңырсай-71."),
     },
     "demo-jk-003": {"R3": ("demo-ad-005", "Квартиры в строящемся доме.")},
 }
@@ -40,7 +40,7 @@ def load_demo_data(session_factory=SessionLocal):
             obj = HousingObject(
                 name=row["name"],
                 developer=row.get("developer", ""),
-                bin=None,
+                bin=row.get("bin"),
                 address=row.get("address", ""),
                 region="Восточно-Казахстанская область · ДЕМО",
                 status="construction",

@@ -5,12 +5,18 @@ import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet'
 import { divIcon } from 'leaflet'
 import { useTranslation } from 'react-i18next'
 import i18n, { formatDate, formatNumber } from './i18n'
-import { api, HousingObject, ImportResponse, PublicationResult } from './api'
+import { api, HousingObject, ImportResponse, PublicationResult, TelegramImportResponse } from './api'
 import { previewFactorConfirmation, unchangedAfterRejection } from './utils/assessment'
 import { hasSeenTour, loadThemePreference, markTourSeen, saveThemePreference, skipUnavailableObjectStep } from './utils/preferences'
 
 const zoneName = (zone: string) => i18n.t(`zone.${zone}`)
 const factorName = (code: string) => i18n.t(`factor.${code}`)
+const SOURCE_URLS: Record<string, string> = {
+  homeportal: 'https://homeportal.kz', elicense: 'https://elicense.kz',
+  qazreestr: 'https://qazreestr.kz', equrylys: 'https://reestr.equrylys.kz/organizations',
+  egov: 'https://egov.kz', kgd: 'https://kgd.gov.kz', rsp: 'https://rsp.gov.kz',
+  cadastre: 'https://map.gov4c.kz/egkn/', procurement: 'https://procurement.gov.kz/ru/registry/rnu',
+}
 const TourStartContext = createContext<() => void>(() => undefined)
 
 function initialTheme(): 'light' | 'dark' {
@@ -103,6 +109,18 @@ function MapSizeInvalidator() {
   }, [map])
   return null
 }
+function ThemeMapTiles() {
+  const [dark, setDark] = useState(document.documentElement.dataset.theme === 'dark')
+  useEffect(() => {
+    const observer = new MutationObserver(() => setDark(document.documentElement.dataset.theme === 'dark'))
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => observer.disconnect()
+  }, [])
+  return <TileLayer
+    attribution={dark ? '&copy; OpenStreetMap contributors &copy; CARTO' : '&copy; OpenStreetMap'}
+    url={dark ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png' : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'}
+  />
+}
 function ObjectRow({ item, onSelect }: { item: HousingObject; onSelect: () => void }) {
   const { t } = useTranslation()
   const assessed = item.is_demo || item.score.factors.length > 0
@@ -141,6 +159,8 @@ function Shell({
   const [theme, setTheme] = useState<'light' | 'dark'>(initialTheme)
   const objectsQuery = useQuery({ queryKey: ['objects'], queryFn: api.objects })
   const hasDemoData = objectsQuery.data?.some((object) => object.is_demo) ?? false
+  const [showDataNote, setShowDataNote] = useState(false)
+  const apiHealth = useQuery({ queryKey: ['health'], queryFn: api.health, refetchInterval: 30_000 })
   useEffect(() => {
     document.documentElement.dataset.theme = theme
     saveThemePreference(theme)
@@ -178,19 +198,16 @@ function Shell({
       </aside>
       <main className={`main ${dashboard ? 'dashboard-main' : ''}`}>
         <header className={`topbar ${dashboard ? 'dashboard-topbar' : ''}`}>
-          {dashboard ? (
-            <>
-              <h1 className="dashboard-top-title">{title}</h1>
-              {hasDemoData && <span className="top-demo-notice" data-tour="demo-pill"><b>{t('common.demoData')}</b> · {t('common.demoDisclaimer').split('·')[1]?.trim()}</span>}
-            </>
-          ) : (
-            <div className="crumb">
-              {t('app.name')} <span>/</span> {title}
-            </div>
-          )}
+          <h1 className="dashboard-top-title">{title}</h1>
+          <div className="data-pill-wrap">
+            <button className={`data-pill ${hasDemoData ? 'is-demo' : ''}`} data-tour="demo-pill" aria-expanded={showDataNote} onClick={() => setShowDataNote((value) => !value)}>
+              <i />{hasDemoData ? t('common.demoData') : t('common.openData')}
+            </button>
+            {showDataNote && <div className="data-popover" role="status">{hasDemoData ? t('common.demoPopover') : t('common.openPopover')}</div>}
+          </div>
           <div className="top-actions">
             <span className="api-status">
-              <i /> {t('common.apiConnected')}
+              <i className={apiHealth.isError ? 'offline' : ''} /> {apiHealth.isError ? t('common.apiOffline') : t('common.apiConnected')}
             </span>
             <button
               className="theme-toggle"
@@ -211,12 +228,6 @@ function Shell({
           </div>
         </header>
         <div className={`page ${dashboard ? 'overview-page' : ''}`}>
-          {!dashboard && hasDemoData && (
-            <div className="demo-banner" role="note">
-              <span className="demo-banner-mark">●</span>
-              <span><strong>{t('common.demoData')}</strong> · {i18n.t('common.demoDisclaimer').split('·')[1]?.trim()}</span>
-            </div>
-          )}
           <div className="page-heading">
             <div>
               <div className="eyebrow">
@@ -233,7 +244,7 @@ function Shell({
     </div>
   )
 }
-function UploadControl({ onDone }: { onDone: () => void }) {
+function UploadControl({ onDone, labelKey = 'import.button' }: { onDone: () => void; labelKey?: string }) {
   const { t } = useTranslation()
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
@@ -255,7 +266,7 @@ function UploadControl({ onDone }: { onDone: () => void }) {
   return (
     <div className="upload-wrap">
       <label className="button secondary">
-        {t('import.button')}
+        {t(labelKey)}
         <input
           type="file"
           accept=".csv,.xlsx,.xlsm"
@@ -312,6 +323,14 @@ function ObjectModal({ item, onClose }: { item: HousingObject; onClose: () => vo
       client.invalidateQueries({ queryKey: ['objects'] })
       client.invalidateQueries({ queryKey: ['object', item.id] })
     },
+  })
+  const [checkSource, setCheckSource] = useState('homeportal')
+  const [checkStatus, setCheckStatus] = useState('found')
+  const [checkComment, setCheckComment] = useState('')
+  const [checkUrl, setCheckUrl] = useState('')
+  const saveSourceCheck = useMutation({
+    mutationFn: () => api.sourceCheck(item.id, { source_id: checkSource, status: checkStatus, actor: t('analyst.default'), comment: checkComment, source_url: checkUrl || null }),
+    onSuccess: () => { setCheckComment(''); client.invalidateQueries({ queryKey: ['object', item.id] }) },
   })
   const current = detail.data
   const displayedObject = current ?? item
@@ -423,6 +442,23 @@ function ObjectModal({ item, onClose }: { item: HousingObject; onClose: () => vo
           <a href={displayedObject.legal_check.source_url} target="_blank" rel="noreferrer">{t('legalCheck.source')}</a>
           {displayedObject.legal_check.registry_record_id && <small>{t('legalCheck.sourceRecord', { id: displayedObject.legal_check.registry_record_id })}</small>}
         </section>}
+        <section className="source-checks">
+          <h3>{t('object.sourceChecks')}</h3>
+          <div className="source-check-form">
+            <select aria-label={t('object.sourceChecks')} value={checkSource} onChange={(event) => setCheckSource(event.target.value)}>
+              {['homeportal','elicense','qazreestr','equrylys','egov','kgd','rsp','cadastre','procurement'].map((source) => <option key={source} value={source}>{t(`sources.name.${source}`)}</option>)}
+            </select>
+            <a className="button secondary" href={SOURCE_URLS[checkSource]} target="_blank" rel="noreferrer">{t('object.openSource')}</a>
+            <select aria-label={t('object.sourceChecks')} value={checkStatus} onChange={(event) => setCheckStatus(event.target.value)}>
+              <option value="found">{t('object.checkFound')}</option><option value="not_found">{t('object.checkNotFound')}</option><option value="unavailable">{t('object.checkUnavailable')}</option>
+            </select>
+            <input aria-label={t('object.checkSourceUrl')} type="url" placeholder="https://…" value={checkUrl} onChange={(event) => setCheckUrl(event.target.value)} />
+            <input aria-label={t('object.checkComment')} placeholder={t('object.checkComment')} value={checkComment} onChange={(event) => setCheckComment(event.target.value)} />
+            <button className="button secondary" onClick={() => saveSourceCheck.mutate()} disabled={saveSourceCheck.isPending || !checkUrl.startsWith('http')}>{t('object.recordCheck')}</button>
+          </div>
+          <p className="muted">{t('object.noR1FromCheck')}</p>
+          {(current?.source_checks || []).map((check) => <p className="source-check-entry" key={check.id}><b>{t(`sources.name.${check.source_id}`)}</b> · {t(`object.checkStatus.${check.status}`)} · {check.actor} · {formatDate(check.created_at)}{check.comment ? ` · ${check.comment}` : ''}{check.source_url && <> · <a href={check.source_url} target="_blank" rel="noreferrer">{t('object.sourceArrow')}</a></>}</p>)}
+        </section>
         <h3>{t('object.legalBasis')}</h3>
         <button className="button secondary" onClick={() => datasetCheck.mutate()}>{t('legalCheck.check')}</button>
         {datasetCheck.isError && <ErrorNote message={(datasetCheck.error as Error).message} />}
@@ -592,7 +628,7 @@ function Dashboard() {
               </div>
               <div className="queue-actions">
                 {!objects.some((object) => object.is_demo) && (
-                  <button className="icon-action" data-tour="demo-load" title={t('overview.demoSeed')} aria-label={t('overview.demoSeed')} onClick={() => demoSeed.mutate()} disabled={demoSeed.isPending}>⇩</button>
+                  <button className="icon-action" data-tour={objects.length === 0 ? 'demo-load' : undefined} title={t('overview.demoSeed')} aria-label={t('overview.demoSeed')} onClick={() => demoSeed.mutate()} disabled={demoSeed.isPending}>⇩</button>
                 )}
                 <UploadControl onDone={() => client.invalidateQueries({ queryKey: ['objects'] })} />
                 <button className="icon-action add-object-action" title={t('overview.addObject')} aria-label={t('overview.addObject')} onClick={() => setShowCreate(true)}>＋</button>
@@ -682,7 +718,7 @@ function Dashboard() {
             <MapContainer center={[49.96, 82.61]} zoom={12} scrollWheelZoom className="overview-leaflet-map">
               <MapSizeInvalidator />
               <MapViewport points={mapPoints} />
-              <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+              <ThemeMapTiles />
               {mappableObjects.map((object) => (
                 <Marker
                   key={object.id}
@@ -785,6 +821,9 @@ function AdsPage() {
   const [busy, setBusy] = useState(false)
   const [screenshotFile, setScreenshotFile] = useState<File | null>(null)
   const [screenshotSaved, setScreenshotSaved] = useState(false)
+  const [telegramStatus, setTelegramStatus] = useState('')
+  const [telegramError, setTelegramError] = useState('')
+  const [telegramMessages, setTelegramMessages] = useState<TelegramImportResponse['messages']>([])
   const linkCandidate = useMutation({
     mutationFn: ({ publicationId, objectId }: { publicationId: number; objectId: number }) =>
       api.linkPublication(publicationId, objectId),
@@ -832,6 +871,29 @@ function AdsPage() {
       subtitle={t('page.adsSubtitle')}
     >
       <div className="two-col">
+        <section className="panel telegram-import">
+          <h2>{t('ads.telegramImport')}</h2>
+          <p className="muted">{t('ads.telegramPrivacy')}</p>
+          <label>{t('ads.telegramFile')} <input type="file" accept="application/json,.json" onChange={async (event) => {
+            const input = event.currentTarget
+            const file = input.files?.[0]
+            if (!file) return
+            setTelegramError(''); setTelegramStatus('')
+            try { const response = await api.importTelegram(file); setTelegramMessages(response.messages); setTelegramStatus(t('ads.telegramImported', { count: response.imported, channel: response.channel })); client.invalidateQueries({ queryKey: ['objects'] }) }
+            catch (error) { setTelegramError((error as Error).message) }
+            input.value = ''
+          }} /></label>
+          {telegramStatus && <p className="inline-success">{telegramStatus}</p>}{telegramError && <ErrorNote message={telegramError} />}
+          {telegramMessages.map((message) => <article className="telegram-message" key={message.publication_id}>
+            <p><HighlightedText text={message.text} /></p>
+            <small>{message.extraction.has_payment_offer ? `${t('ads.hypothesis')} · ${t(`ads.confidenceLevel.${message.extraction.confidence >= 0.8 ? 'high' : message.extraction.confidence >= 0.55 ? 'medium' : 'low'}`)}` : t('ads.paymentNotFound')} · {t('ads.confidence', { percent: Math.round(message.extraction.confidence * 100) })}{message.extraction.confidence < 0.45 ? ` · ${t('ads.uncertain')}` : ''}</small>
+            {message.source_url && <a href={message.source_url} target="_blank" rel="noreferrer">{t('object.sourceArrow')}</a>}
+            {message.matches.slice(0, 3).map((candidate) => <button className="candidate-link" key={candidate.object_id} onClick={async () => {
+              try { await api.linkPublication(message.publication_id, candidate.object_id); setTelegramMessages((previous) => previous.filter((row) => row.publication_id !== message.publication_id)); client.invalidateQueries({ queryKey: ['objects'] }) }
+              catch (error) { setTelegramError((error as Error).message) }
+            }}>{t('ads.linkObject')}: {candidate.name} · {Math.round(candidate.confidence * 100)}%</button>)}
+          </article>)}
+        </section>
         <section className="panel form-panel">
           <div className="eyebrow">{t('ads.newObservation')}</div>
           <h2>{t('ads.addPublication')}</h2>
@@ -1084,11 +1146,13 @@ function SignalsPage() {
 }
 function SourcesPage() {
   const { t } = useTranslation()
+  const client = useQueryClient()
   const sources = useQuery({ queryKey: ['sources'], queryFn: api.sources })
   return (
     <Shell
       title={t('page.sources')}
       subtitle={t('page.sourcesSubtitle')}
+      action={<UploadControl labelKey="sources.updateDataset" onDone={() => { client.invalidateQueries({ queryKey: ['objects'] }); client.invalidateQueries({ queryKey: ['sources'] }) }} />}
     >
       <section className="panel sources-list">
         {sources.isLoading && <p>{t('sources.loadingAshyq')}</p>}
@@ -1103,13 +1167,13 @@ function SourcesPage() {
               <small>
                 {s.message_code && i18n.exists(`sources.status.${s.message_code}`) ? t(`sources.status.${s.message_code}`) : s.status === 'available' ? t('sources.metadataAvailable') : t('sources.checkManually')}
               </small>
+              {sourceId === 'ashyq' && <small>{t('sources.connectedRecords', { count: s.record_count ?? 0 })} · {s.imported_at ? t('sources.lastImported', { date: formatDate(s.imported_at) }) : t('sources.notImported')}</small>}
+              {sourceId && i18n.exists(`sources.whatToCheck.${sourceId}`) && <small>{t(`sources.whatToCheck.${sourceId}`)}</small>}
             </div>
             <span className="source-state">
-              {s.status === 'available'
-                ? t('sources.available')
-                : s.status === 'api_metadata'
-                  ? t('sources.apiMetadata')
-                  : t('sources.manualReview')}
+              {sourceId === 'ashyq'
+                ? t(s.connection_mode === 'connected' ? 'sources.connected' : 'sources.notConnected')
+                : t('sources.manualReview')}
             </span>
             <a className="button secondary" href={s.url} target="_blank" rel="noreferrer">
               {t('sources.openArrow')}
@@ -1199,6 +1263,7 @@ function GuidedTour({ open, onClose }: { open: boolean; onClose: () => void }) {
         return
       }
       target.classList.add('tour-target')
+      target.classList.add(step.action ? 'tour-action-target' : 'tour-passive-target')
       target.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
       updatePosition = () => setTargetRect(target?.getBoundingClientRect() ?? null)
       frame = requestAnimationFrame(updatePosition)
@@ -1214,6 +1279,7 @@ function GuidedTour({ open, onClose }: { open: boolean; onClose: () => void }) {
       window.removeEventListener('scroll', updatePosition, true)
       target?.removeEventListener('click', targetClick)
       target?.classList.remove('tour-target')
+      target?.classList.remove('tour-action-target', 'tour-passive-target')
     }
   }, [location.pathname, navigate, open, step, steps.length])
 

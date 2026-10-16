@@ -91,6 +91,37 @@ def test_signal_workflow_and_audit_log(test_client):
     )
 
 
+def test_deposit_publication_stays_zero_until_analyst_confirms_hypothesis(test_client):
+    obj = test_client.post(
+        "/api/objects", json={"name": "ЖК Тестовый депозит", "status": "construction"}
+    ).json()
+    assert obj["score"]["score"] == 0
+    publication = test_client.post(
+        "/api/publications",
+        json={
+            "text": "Внесите депозит 500 000 за бронь квартиры в строящемся доме.",
+            "source": "manual",
+            "source_url": "https://example.org/synthetic-ad",
+            "housing_object_id": obj["id"],
+        },
+    )
+    assert publication.status_code == 201
+    assert publication.json()["extraction"]["quote_valid"] is True
+    hypothesis = publication.json()["evidence"][0]
+    assert hypothesis["status"] == "ai_hypothesis"
+    assert test_client.get(f"/api/objects/{obj['id']}").json()["score"]["score"] == 0
+    confirmed = test_client.patch(
+        f"/api/evidence/{hypothesis['id']}/review",
+        json={
+            "status": "fact",
+            "reviewer": "Аналитик",
+            "source_url": "https://example.org/synthetic-ad",
+        },
+    )
+    assert confirmed.status_code == 200
+    assert confirmed.json()["score"]["score"] == 25
+
+
 def test_object_creation_adds_r5_hypothesis_only_at_20_points(test_client):
     below = test_client.post(
         "/api/objects",

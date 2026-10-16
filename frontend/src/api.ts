@@ -55,6 +55,10 @@ export type Source = {
   message?: string
   message_code?: string
   fetched_at?: string
+  record_count?: number
+  imported_at?: string | null
+  dataset_name?: string
+  connection_mode?: string
 }
 export type PaymentExtraction = {
   has_payment_offer: boolean
@@ -73,6 +77,12 @@ export type MatchCandidate = {
   developer: string
   confidence: number
   score: Score
+}
+export type TelegramImportResponse = {
+  channel: string
+  imported: number
+  captured_at: string
+  messages: { publication_id: number; published_at: string | null; captured_at: string | null; source_url: string | null; text: string; extraction: PaymentExtraction; matches: MatchCandidate[] }[]
 }
 export type PublicationResult = {
   publication_id: number
@@ -139,11 +149,13 @@ const json = (method: string, body: unknown) => ({
 })
 
 export const api = {
+  health: () => request<{ status: string }>('/health'),
   objects: () => request<HousingObject[]>('/objects'),
   object: (id: number) =>
     request<
       HousingObject & {
         evidence: Evidence[]
+        source_checks: { id: number; source_id: string; status: string; actor: string; comment: string; source_url?: string; created_at: string }[]
         publications: { id: number; text: string; extraction: Record<string, unknown> }[]
       }
     >(`/objects/${id}`),
@@ -175,6 +187,12 @@ export const api = {
     data.append('file', file)
     return request<ImportResponse>('/import/ashyq', { method: 'POST', body: data })
   },
+  importTelegram: (file: File) => {
+    const data = new FormData()
+    data.append('file', file)
+    return request<TelegramImportResponse>('/import/telegram', { method: 'POST', body: data })
+  },
+  sourceCheck: (id: number, body: object) => request(`/objects/${id}/source-checks`, json('POST', body)),
   seed: () =>
     request<{ message: string; objects: number; publications: number }>('/demo-seed', {
       method: 'POST',

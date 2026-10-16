@@ -26,5 +26,6 @@ export function markTourSeen(completed = false) {
 }
 
 export function skipUnavailableObjectStep(stepKey: number, lastIndex: number) {
+  if (stepKey === 3) return Math.min(3, lastIndex)
   return stepKey >= 5 && stepKey <= 7 ? Math.min(7, lastIndex) : null
 }

@@ -53,14 +53,13 @@ async def http_error_handler(request: Request, error: StarletteHTTPException):
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(request: Request, error: RequestValidationError):
     # Keep FastAPI's legacy structured detail while excluding non-JSON `ctx.error` objects.
-    details = [
-        {key: value for key, value in issue.items() if key != "ctx"}
-        for issue in error.errors()
-    ]
+    details = [{key: value for key, value in issue.items() if key != "ctx"} for issue in error.errors()]
     return JSONResponse(
         status_code=422,
         content={"detail": details, "error_code": "validation_error"},
     )
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],

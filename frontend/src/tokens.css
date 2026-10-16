@@ -41,3 +41,14 @@
   --risk-yellow-bg: #493d24;
   --risk-green-bg: #294332;
 }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --canvas: #121b20; --surface: #1b282f; --surface-muted: #22323a;
+    --text: #e4edf0; --text-muted: #a8bac1; --border: #34474f;
+    --sidebar: #10191e; --accent: #67b4d0; --accent-soft: #203a45; --gold: #e0bb67;
+    --zone-red: #ff8b83; --zone-yellow: #f1ca65; --zone-green: #80cc96;
+    --risk-red-bg: #492b2b; --risk-yellow-bg: #493d24; --risk-green-bg: #294332;
+  }
+}

@@ -32,6 +32,8 @@ def test_import_accepts_fields_from_published_ashyq_schema(test_client):
     audit = test_client.get(f"/api/objects/{imported['id']}/audit").json()
     assert audit[0]["details"]["source_id"] == "1"
     assert audit[0]["details"]["permission_number"] == "PERMIT-1"
+
+
 def test_import_sample_deduplicates_and_discards_unmapped_personal_columns(test_client):
     sample = Path(__file__).resolve().parents[2] / "data" / "sample" / "ashyq-synthetic-sample.csv"
     content = sample.read_bytes()
@@ -113,3 +115,25 @@ def test_not_found_in_loaded_dataset_never_creates_r1(test_client):
     detail = test_client.get(f"/api/objects/{object_id}").json()
     assert detail["score"]["score"] == 0
     assert all(factor["factor_code"] != "R1" for factor in detail["score"]["factors"])
+
+
+def test_manual_not_found_source_check_is_audited_and_does_not_create_r1(test_client):
+    obj = test_client.post("/api/objects", json={"name": "ЖК Тексеру", "developer": "ТОО Үлгі"}).json()
+    response = test_client.post(
+        f"/api/objects/{obj['id']}/source-checks",
+        json={
+            "source_id": "qazreestr",
+            "status": "not_found",
+            "actor": "Аналитик А",
+            "comment": "Тексеру жазбасы",
+            "source_url": "https://qazreestr.kz",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["status"] == "not_found"
+    detail = test_client.get(f"/api/objects/{obj['id']}").json()
+    assert detail["score"]["score"] == 0
+    assert not any(factor["factor_code"] == "R1" for factor in detail["score"]["factors"])
+    audit = test_client.get(f"/api/objects/{obj['id']}/audit").json()
+    assert audit[0]["action"] == "source_check_recorded"
+    assert audit[0]["actor"] == "Аналитик А"

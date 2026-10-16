@@ -125,3 +125,16 @@ class LegalBasisCheck(Base):
     source_url: Mapped[str] = mapped_column(String(1000))
     registry_record_id: Mapped[int | None] = mapped_column(ForeignKey("registry_records.id"))
     housing_object: Mapped[HousingObject] = relationship(back_populates="legal_checks")
+
+
+class SourceReview(Base):
+    __tablename__ = "source_reviews"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    housing_object_id: Mapped[int] = mapped_column(ForeignKey("housing_objects.id"), index=True)
+    source_id: Mapped[str] = mapped_column(String(80), index=True)
+    status: Mapped[str] = mapped_column(String(30))
+    actor: Mapped[str] = mapped_column(String(200))
+    comment: Mapped[str] = mapped_column(Text, default="")
+    source_url: Mapped[str | None] = mapped_column(String(1000))
+    screenshot_path: Mapped[str | None] = mapped_column(String(1000))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

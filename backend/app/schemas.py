@@ -62,6 +62,14 @@ class LegalBasisUpdate(BaseModel):
         return self
 
 
+class SourceReviewCreate(BaseModel):
+    source_id: str = Field(min_length=2, max_length=80)
+    status: Literal["found", "not_found", "unavailable"]
+    actor: str = Field(min_length=2, max_length=200)
+    comment: str = Field(default="", max_length=2000)
+    source_url: str = Field(min_length=8, max_length=1000)
+
+
 class SignalCreate(BaseModel):
     housing_object_id: int
     author: str = Field(min_length=2, max_length=200)

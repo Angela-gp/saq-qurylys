@@ -28,6 +28,8 @@ def test_demo_seed_recreates_eight_objects_twelve_publications_and_scenarios(tmp
         publications = db.scalars(select(Publication)).all()
         assert len(objects) == 8
         assert len(publications) == 12
+        assert all(obj.bin and len(obj.bin) == 12 and obj.bin.isdigit() for obj in objects)
+        assert all("demo" not in obj.name.casefold() and "демо" not in obj.name.casefold() for obj in objects)
         publications_by_id = {publication.id: publication for publication in publications}
         observed = {}
         for obj in objects:
@@ -54,10 +56,10 @@ def test_demo_seed_recreates_eight_objects_twelve_publications_and_scenarios(tmp
                     obj.legal_basis_status,
                 )
                 if scenario == "B":
+                    assert observed[scenario]["score"] == 70
+                    assert observed[scenario]["zone"] == "red"
                     r2 = next(
-                        factor
-                        for factor in observed[scenario]["factors"]
-                        if factor["factor_code"] == "R2"
+                        factor for factor in observed[scenario]["factors"] if factor["factor_code"] == "R2"
                     )
                     evidence_by_id = {item.id: item for item in evidence}
                     assert r2["quote"] == "внесите депозит 150 000 ₸"
