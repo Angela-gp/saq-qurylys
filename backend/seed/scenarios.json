@@ -1,0 +1,5 @@
+[
+  {"id":"A","title":"Основание не проверено, есть платная бронь","summary":"Отсутствие сведений не становится R1. Подтверждены только R2 и R3.","factors":["R2","R3"],"legal_basis_status":"not_checked","expected_score":35,"expected_zone":"yellow"},
+  {"id":"B","title":"Подтверждено отсутствие основания и найден депозит","summary":"R1 и R2 доказаны; карточка всё равно ждёт решения аналитика.","factors":["R1","R2","R3"],"legal_basis_status":"absent","expected_score":70,"expected_zone":"red"},
+  {"id":"C","title":"Подтверждена гарантия Единого оператора","summary":"Обычная реклама даёт R3. Отсутствие отдельного разрешения МИО не создаёт R1.","factors":["R3"],"legal_basis_status":"confirmed","legal_basis_type":"Гарантия Единого оператора","expected_score":10,"expected_zone":"green"}
+]
