@@ -1,13 +1,16 @@
 """Load explicitly requested, fictional control data. Normal app startup stays empty."""
 
 import json
+import os
+import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy import delete, select
 
+from backend.app.auth import hash_password
 from backend.app.database import Base, SessionLocal, engine
-from backend.app.models import AuditLog, Evidence, HousingObject, Publication, Signal
+from backend.app.models import AuditLog, Evidence, HousingObject, Publication, Signal, User
 
 DEMO_EVIDENCE_SOURCES = {
     "demo-jk-001": {
@@ -115,7 +118,43 @@ def load_demo_data(session_factory=SessionLocal):
     return {"objects": len(objects), "publications": len(data.get("publications", []))}
 
 
+def seed_auth_users(session_factory=SessionLocal, passwords: dict[str, str] | None = None, emit=True):
+    """Create fictional accounts once, storing only Argon2 hashes."""
+    Base.metadata.create_all(engine)
+    config_path = Path(__file__).with_name("users.json")
+    users_config = json.loads(config_path.read_text(encoding="utf-8"))
+    created = []
+    with session_factory() as db:
+        for item in users_config:
+            if db.scalar(select(User).where(User.username == item["username"])):
+                continue
+            password = (passwords or {}).get(item["username"]) or os.getenv(item["password_env"])
+            generated = password is None
+            if generated:
+                password = secrets.token_urlsafe(18)
+            user = User(
+                username=item["username"],
+                display_name=item["display_name"],
+                role=item["role"],
+                password_hash=hash_password(password),
+                active=True,
+            )
+            db.add(user)
+            if generated:
+                created.append((user.username, password))
+        db.commit()
+    if emit:
+        if created:
+            print("Сохраните одноразовые пароли новых пользователей сейчас:")
+            for username, password in created:
+                print(f"  {username}: {password}")
+        else:
+            print("Учётные записи уже созданы или заданы через локальный .env.")
+    return {"created": len(created)}
+
+
 def main():
+    seed_auth_users()
     counts = load_demo_data()
     print(
         f"Загружено объектов ДЕМО: {counts['objects']}, "

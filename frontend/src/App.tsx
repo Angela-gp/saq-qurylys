@@ -5,7 +5,7 @@ import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet'
 import { divIcon } from 'leaflet'
 import { useTranslation } from 'react-i18next'
 import i18n, { formatDate, formatNumber } from './i18n'
-import { api, HousingObject, ImportResponse, PublicationResult, TelegramImportResponse } from './api'
+import { api, HousingObject, ImportResponse, PublicationResult, SessionUser, TelegramImportResponse } from './api'
 import { previewFactorConfirmation, unchangedAfterRejection } from './utils/assessment'
 import { hasSeenTour, loadThemePreference, markTourSeen, saveThemePreference, skipUnavailableObjectStep, tourScrimRects } from './utils/preferences'
 
@@ -18,6 +18,7 @@ const SOURCE_URLS: Record<string, string> = {
   cadastre: 'https://map.gov4c.kz/egkn/', procurement: 'https://procurement.gov.kz/ru/registry/rnu',
 }
 const TourStartContext = createContext<() => void>(() => undefined)
+const AuthContext = createContext<{ user: SessionUser | null; logout: () => void }>({ user: null, logout: () => undefined })
 
 function initialTheme(): 'light' | 'dark' {
   const prefersDark = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -156,6 +157,7 @@ function Shell({
 }) {
   const { t, i18n } = useTranslation()
   const startTour = useContext(TourStartContext)
+  const auth = useContext(AuthContext)
   const [theme, setTheme] = useState<'light' | 'dark'>(initialTheme)
   const objectsQuery = useQuery({ queryKey: ['objects'], queryFn: api.objects })
   const hasDemoData = objectsQuery.data?.some((object) => object.is_demo) ?? false
@@ -224,6 +226,7 @@ function Shell({
               {i18n.language.startsWith('ru') ? 'RU' : 'KZ'}⌄
             </button>
             <button className="tour-start" onClick={startTour} title={t('tour.start')} aria-label={t('tour.start')}>?</button>
+            {auth.user && <div className="auth-user"><span>{auth.user.display_name}<small>{t(`auth.role.${auth.user.role}`)}</small></span><button className="auth-logout" onClick={auth.logout}>{t('auth.logout')}</button></div>}
             {!dashboard && <div className="avatar" aria-hidden="true">●</div>}
           </div>
         </header>
@@ -460,7 +463,7 @@ function ObjectModal({ item, onClose }: { item: HousingObject; onClose: () => vo
           {(current?.source_checks || []).map((check) => <p className="source-check-entry" key={check.id}><b>{t(`sources.name.${check.source_id}`)}</b> · {t(`object.checkStatus.${check.status}`)} · {check.actor} · {formatDate(check.created_at)}{check.comment ? ` · ${check.comment}` : ''}{check.source_url && <> · <a href={check.source_url} target="_blank" rel="noreferrer">{t('object.sourceArrow')}</a></>}</p>)}
         </section>
         <h3>{t('object.legalBasis')}</h3>
-        <button className="button secondary" onClick={() => datasetCheck.mutate()}>{t('legalCheck.check')}</button>
+        <button className="button secondary analyst-only" onClick={() => datasetCheck.mutate()}>{t('legalCheck.check')}</button>
         {datasetCheck.isError && <ErrorNote message={(datasetCheck.error as Error).message} />}
         {datasetCheck.data && <p className="muted">{t(`errors.${datasetCheck.data.status === 'found' ? 'dataset_record_found' : datasetCheck.data.status === 'not_found' ? 'dataset_record_not_found_review_required' : 'dataset_not_loaded_review_required'}`)}</p>}
         <div className="form-grid">
@@ -481,7 +484,7 @@ function ObjectModal({ item, onClose }: { item: HousingObject; onClose: () => vo
             value={basisUrl}
             onChange={(e) => setBasisUrl(e.target.value)}
           />
-          <button className="button secondary" onClick={() => saveBasis.mutate()}>
+          <button className="button secondary analyst-only" onClick={() => saveBasis.mutate()}>
             {t('object.saveCheck')}
           </button>
         </div>
@@ -1340,20 +1343,75 @@ function GuidedTour({ open, onClose }: { open: boolean; onClose: () => void }) {
     </div>
   )
 }
+function LoginPage({ onLogin }: { onLogin: (user: SessionUser) => void }) {
+  const { t } = useTranslation()
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setError('')
+    setBusy(true)
+    try {
+      const result = await api.login(username, password)
+      onLogin(result.user)
+    } catch (reason) {
+      const code = (reason as Error).message
+      setError(code === 'login_rate_limited' ? t('auth.rateLimited') : t('auth.invalidCredentials'))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <main className="login-screen">
+      <form className="login-panel" onSubmit={submit}>
+        <div className="brand-mark login-brand" aria-hidden="true">⌂</div>
+        <span className="eyebrow">{t('app.country')}</span>
+        <h1>{t('auth.title')}</h1>
+        <p>{t('app.name')}</p>
+        <label>{t('auth.username')}<input autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} required /></label>
+        <label>{t('auth.password')}<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
+        {error && <div className="notice error" role="alert">{error}</div>}
+        <button className="button primary" disabled={busy}>{busy ? t('auth.signingIn') : t('auth.signIn')}</button>
+      </form>
+    </main>
+  )
+}
+
 export default function App() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const [authUser, setAuthUser] = useState<SessionUser | null>(null)
+  const [authReady, setAuthReady] = useState(false)
   const [tourOpen, setTourOpen] = useState(() => !hasSeenTour())
+  useEffect(() => {
+    let active = true
+    api.currentUser().then((user) => { if (active) setAuthUser(user) }).catch(() => { if (active) setAuthUser(null) }).finally(() => { if (active) setAuthReady(true) })
+    return () => { active = false }
+  }, [])
+  const logout = useCallback(async () => {
+    try { await api.logout() } catch { /* Expired sessions are cleared locally as well. */ }
+    queryClient.clear()
+    setAuthUser(null)
+  }, [queryClient])
+  if (!authReady) return <main className="login-screen"><div className="login-panel" role="status">{i18n.t('auth.loading')}</div></main>
+  if (!authUser) return <LoginPage onLogin={setAuthUser} />
   return (
-    <TourStartContext.Provider value={() => setTourOpen(true)}>
-      <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/registry" element={<RegistryPage />} />
-        <Route path="/ads" element={<AdsPage />} />
-        <Route path="/signals" element={<SignalsPage />} />
-        <Route path="/sources" element={<SourcesPage />} />
-        <Route path="*" element={<button onClick={() => navigate('/')}>{i18n.t('nav.home')}</button>} />
-      </Routes>
-      <GuidedTour open={tourOpen} onClose={() => setTourOpen(false)} />
-    </TourStartContext.Provider>
+    <AuthContext.Provider value={{ user: authUser, logout }}>
+      <div className="app-root" data-role={authUser.role}>
+        <TourStartContext.Provider value={() => setTourOpen(true)}>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/registry" element={<RegistryPage />} />
+            <Route path="/ads" element={<AdsPage />} />
+            <Route path="/signals" element={<SignalsPage />} />
+            <Route path="/sources" element={<SourcesPage />} />
+            <Route path="*" element={<button onClick={() => navigate('/')}>{i18n.t('nav.home')}</button>} />
+          </Routes>
+          <GuidedTour open={tourOpen} onClose={() => setTourOpen(false)} />
+        </TourStartContext.Provider>
+      </div>
+    </AuthContext.Provider>
   )
 }

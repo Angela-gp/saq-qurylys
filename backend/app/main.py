@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import secrets
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -9,11 +11,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.sessions import SessionMiddleware
 
 load_dotenv()
 
 from backend.app import models  # noqa: E402, F401
 from backend.app.api.routes import router  # noqa: E402
+from backend.app.auth import auth_router  # noqa: E402
 from backend.app.database import Base, engine  # noqa: E402
 
 Base.metadata.create_all(bind=engine)
@@ -65,7 +69,16 @@ app.add_middleware(
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.getenv("SESSION_SECRET") or secrets.token_urlsafe(32),
+    max_age=60 * 60 * 12,
+    same_site="lax",
+    https_only=os.getenv("SESSION_HTTPS_ONLY", "false").lower() == "true",
+)
+app.include_router(auth_router)
 app.include_router(router)
 
 dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"

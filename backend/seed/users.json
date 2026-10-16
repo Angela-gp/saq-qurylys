@@ -1,0 +1,20 @@
+[
+  {
+    "username": "analyst",
+    "display_name": "Аналитик А",
+    "role": "analyst",
+    "password_env": "SAQ_PASSWORD_ANALYST"
+  },
+  {
+    "username": "analyst.backup",
+    "display_name": "Аналитик В",
+    "role": "analyst",
+    "password_env": "SAQ_PASSWORD_ANALYST_BACKUP"
+  },
+  {
+    "username": "observer",
+    "display_name": "Наблюдатель Б",
+    "role": "observer",
+    "password_env": "SAQ_PASSWORD_OBSERVER"
+  }
+]

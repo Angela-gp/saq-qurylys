@@ -128,11 +128,12 @@ export type SignalTransitionResponse = {
   status: ApiSignal['status']
   comments: SignalComment[]
 }
+export type SessionUser = { username: string; display_name: string; role: 'analyst' | 'observer' }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response
   try {
-    response = await fetch(`/api${path}`, init)
+    response = await fetch(`/api${path}`, { ...init, credentials: 'same-origin' })
   } catch {
     throw new Error('network_error')
   }
@@ -149,6 +150,16 @@ const json = (method: string, body: unknown) => ({
 })
 
 export const api = {
+  currentUser: async (): Promise<SessionUser | null> => {
+    const response = await fetch('/api/auth/me', { credentials: 'same-origin' })
+    if (response.status === 401) return null
+    if (!response.ok) throw new Error('api_unavailable')
+    const body = await response.json()
+    return body.user as SessionUser
+  },
+  login: (username: string, password: string) =>
+    request<{ user: SessionUser }>('/auth/login', json('POST', { username, password })),
+  logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
   health: () => request<{ status: string }>('/health'),
   objects: () => request<HousingObject[]>('/objects'),
   object: (id: number) =>

@@ -22,6 +22,7 @@ from backend.app.adapters.ashyq_import import (
 )
 from backend.app.adapters.telegram_import import parse_telegram_export
 from backend.app.ai.extractor import extract_payment_offer
+from backend.app.auth import get_current_user, router_actor
 from backend.app.database import get_db
 from backend.app.domain.scoring import calculate_score, has_readiness_mismatch, readiness_gap
 from backend.app.models import (
@@ -47,7 +48,7 @@ from backend.app.schemas import (
 )
 from backend.seed.seed import load_demo_data
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", dependencies=[Depends(get_current_user)])
 SCREENSHOT_DIR = Path(__file__).resolve().parents[2] / "data" / "screenshots"
 ASHYQ_PUBLIC_FIELDS = (
     "source_record_id",
@@ -121,7 +122,7 @@ def _log(
     housing_object_id: int | None = None,
     entity_type: str = "object",
     entity_id: int | None = None,
-    actor: str = "Система",
+    actor: str | None = None,
     details: dict | None = None,
 ):
     db.add(
@@ -130,7 +131,7 @@ def _log(
             entity_type=entity_type,
             entity_id=entity_id,
             action=action,
-            actor=actor,
+            actor=actor or router_actor.get(),
             details=details or {},
         )
     )
@@ -326,7 +327,7 @@ def update_legal_basis(object_id: int, payload: LegalBasisUpdate, db: Session = 
                 source="manual_registry_check",
                 source_url=payload.source_url,
                 rationale=payload.note,
-                reviewed_by=payload.analyst,
+                reviewed_by=router_actor.get(),
                 reviewed_at=datetime.now(timezone.utc),
             )
         )
@@ -334,13 +335,13 @@ def update_legal_basis(object_id: int, payload: LegalBasisUpdate, db: Session = 
         for item in obj.evidence:
             if item.factor_code == "R1" and item.status == "fact":
                 item.status = "rejected"
-                item.reviewed_by = payload.analyst
+                item.reviewed_by = router_actor.get()
                 item.reviewed_at = datetime.now(timezone.utc)
     _log(
         db,
         "legal_basis_updated",
         obj.id,
-        actor=payload.analyst,
+        actor=router_actor.get(),
         details={
             "from": previous,
             "to": payload.status,
@@ -615,7 +616,7 @@ def review_evidence(evidence_id: int, payload: EvidenceReview, db: Session = Dep
     if payload.status == "fact" and item.factor_code in {"R2", "R3"} and not item.quote:
         raise HTTPException(422, "Для подтверждения фактора рекламы нужна точная цитата")
     item.status = payload.status
-    item.reviewed_by = payload.reviewer
+    item.reviewed_by = router_actor.get()
     item.reviewed_at = datetime.now(timezone.utc)
     if payload.comment:
         item.rationale = f"{item.rationale}\nКомментарий аналитика: {payload.comment}".strip()
@@ -625,7 +626,7 @@ def review_evidence(evidence_id: int, payload: EvidenceReview, db: Session = Dep
         item.housing_object_id,
         "evidence",
         item.id,
-        payload.reviewer,
+        router_actor.get(),
         {"status": payload.status, "comment": payload.comment},
     )
     db.commit()
@@ -673,7 +674,11 @@ def create_source_check(object_id: int, payload: SourceReviewCreate, db: Session
     allowed = {source["id"] for source in SOURCE_LINKS}
     if payload.source_id not in allowed:
         raise HTTPException(422, "unknown_source")
-    item = SourceReview(housing_object_id=object_id, **payload.model_dump())
+    item = SourceReview(
+        housing_object_id=object_id,
+        **payload.model_dump(exclude={"actor"}),
+        actor=router_actor.get(),
+    )
     db.add(item)
     db.flush()
     _log(
@@ -682,7 +687,7 @@ def create_source_check(object_id: int, payload: SourceReviewCreate, db: Session
         object_id,
         "source_review",
         item.id,
-        payload.actor,
+        router_actor.get(),
         {
             "source_id": item.source_id,
             "status": item.status,
@@ -1006,11 +1011,11 @@ def create_signal(payload: SignalCreate, db: Session = Depends(get_db)):
         raise HTTPException(404, "Объект не найден")
     signal = Signal(
         housing_object_id=obj.id,
-        author=payload.author,
+        author=router_actor.get(),
         comments=(
             [
                 {
-                    "author": payload.author,
+                    "author": router_actor.get(),
                     "text": payload.comment,
                     "created_at": datetime.now(timezone.utc).isoformat(),
                 }
@@ -1028,7 +1033,7 @@ def create_signal(payload: SignalCreate, db: Session = Depends(get_db)):
         obj.id,
         "signal",
         signal.id,
-        payload.author,
+        router_actor.get(),
         {"score": signal.score_snapshot.get("score")},
     )
     db.commit()
@@ -1048,7 +1053,7 @@ def transition_signal(signal_id: int, payload: SignalTransition, db: Session = D
     signal.comments = [
         *signal.comments,
         {
-            "author": payload.author,
+            "author": router_actor.get(),
             "text": payload.comment,
             "created_at": datetime.now(timezone.utc).isoformat(),
         },
@@ -1059,7 +1064,7 @@ def transition_signal(signal_id: int, payload: SignalTransition, db: Session = D
         signal.housing_object_id,
         "signal",
         signal.id,
-        payload.author,
+        router_actor.get(),
         {"status": payload.status, "comment": payload.comment},
     )
     db.commit()

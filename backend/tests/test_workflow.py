@@ -65,7 +65,7 @@ def test_signal_workflow_and_audit_log(test_client):
     )
     assert response.status_code == 200
     assert response.json()["status"] == "returned"
-    assert response.json()["comments"][-1]["author"] == "Проверяющий"
+    assert response.json()["comments"][-1]["author"] == "Аналитик А"
     assert response.json()["comments"][-1]["created_at"].endswith("+00:00")
 
     response = test_client.patch(
@@ -84,7 +84,7 @@ def test_signal_workflow_and_audit_log(test_client):
     assert audit.status_code == 200
     assert any(
         row["action"] == "signal_status_changed"
-        and row["actor"] == "Утверждающий"
+        and row["actor"] == "Аналитик А"
         and row["details"]["status"] == "confirmed"
         and row["created_at"].endswith("+00:00")
         for row in audit.json()
