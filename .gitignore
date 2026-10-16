@@ -10,6 +10,8 @@ __pycache__/
 node_modules/
 frontend/dist/
 backend/data/
+data/raw/*
+!data/raw/.gitkeep
 *.db
 *.sqlite
 *.sqlite3

@@ -30,6 +30,7 @@ export type HousingObject = {
   latitude: number | null
   longitude: number | null
   is_demo: boolean
+  legal_check?: { status: 'found' | 'not_found' | 'no_dataset'; dataset_name: string; imported_at: string; source_url: string; registry_record_id: number | null } | null
   created_at?: string
   score: Score
 }
@@ -52,6 +53,7 @@ export type Source = {
   url: string
   status: string
   message?: string
+  message_code?: string
   fetched_at?: string
 }
 export type PaymentExtraction = {
@@ -84,6 +86,7 @@ export type ApiSignal = {
   id: number
   housing_object_id: number
   object_name: string
+  is_demo: boolean
   status: 'draft' | 'in_review' | 'confirmed' | 'returned'
   author: string
   comments: SignalComment[]
@@ -95,7 +98,10 @@ export type ImportResponse = {
   uploaded_rows: number
   imported_objects: number
   duplicates_skipped: number
-  message: string
+  updated_objects?: number
+  accepted?: { row_number: number; status: string; object_id?: number }[]
+  skipped?: { row_number: number; reason_code: string }[]
+  message_code?: string
 }
 export type PublicationLinkResult = {
   publication_id: number
@@ -114,10 +120,15 @@ export type SignalTransitionResponse = {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`/api${path}`, init)
+  let response: Response
+  try {
+    response = await fetch(`/api${path}`, init)
+  } catch {
+    throw new Error('network_error')
+  }
   if (!response.ok) {
     const body = await response.json().catch(() => ({}))
-    throw new Error(body.detail || `Ошибка API ${response.status}`)
+    throw new Error(body.error_code || body.detail || `api_error:${response.status}`)
   }
   return response.json()
 }
@@ -149,6 +160,13 @@ export const api = {
     request<ReviewResponse>(`/evidence/${id}/review`, json('PATCH', body)),
   legalBasis: (id: number, body: object) =>
     request<HousingObject>(`/objects/${id}/legal-basis`, json('PATCH', body)),
+  checkLegalBasis: (id: number) =>
+    request<NonNullable<HousingObject['legal_check']>>(`/objects/${id}/legal-check/ashyq`, { method: 'POST' }),
+  uploadPublicationScreenshot: (id: number, file: File) => {
+    const data = new FormData()
+    data.append('file', file)
+    return request<{ path: string }>(`/publications/${id}/screenshot`, { method: 'POST', body: data })
+  },
   addSignal: (body: object) => request<SignalCreateResponse>('/signals', json('POST', body)),
   transitionSignal: (id: number, body: object) =>
     request<SignalTransitionResponse>(`/signals/${id}/status`, json('PATCH', body)),

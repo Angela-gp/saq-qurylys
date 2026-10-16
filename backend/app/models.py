@@ -16,9 +16,9 @@ class HousingObject(Base):
     __tablename__ = "housing_objects"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(300), index=True)
-    developer: Mapped[str] = mapped_column(String(300), default="")
+    developer: Mapped[str] = mapped_column(String(300), default="", index=True)
     bin: Mapped[str | None] = mapped_column(String(12), index=True)
-    address: Mapped[str] = mapped_column(String(500), default="")
+    address: Mapped[str] = mapped_column(String(500), default="", index=True)
     region: Mapped[str] = mapped_column(String(200), default="")
     status: Mapped[str] = mapped_column(String(80), default="unknown")
     readiness: Mapped[float | None] = mapped_column(Float)
@@ -36,6 +36,8 @@ class HousingObject(Base):
     publications: Mapped[list["Publication"]] = relationship(
         back_populates="housing_object", cascade="all, delete-orphan"
     )
+    registry_records: Mapped[list["RegistryRecord"]] = relationship(back_populates="housing_object")
+    legal_checks: Mapped[list["LegalBasisCheck"]] = relationship(back_populates="housing_object")
 
 
 class Publication(Base):
@@ -91,3 +93,35 @@ class AuditLog(Base):
     actor: Mapped[str] = mapped_column(String(200), default="Аналитик")
     details: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class RegistryRecord(Base):
+    """A source row imported from an open registry, with provenance preserved."""
+
+    __tablename__ = "registry_records"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_id: Mapped[str] = mapped_column(String(80), index=True, default="ashyq")
+    source_record_id: Mapped[str | None] = mapped_column(String(200), index=True)
+    dedupe_key: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    housing_object_id: Mapped[int] = mapped_column(ForeignKey("housing_objects.id"), index=True)
+    dataset_name: Mapped[str] = mapped_column(String(300))
+    source_url: Mapped[str] = mapped_column(String(1000))
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    permission_number: Mapped[str | None] = mapped_column(String(200))
+    permission_start: Mapped[str | None] = mapped_column(String(80))
+    permission_end: Mapped[str | None] = mapped_column(String(80))
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    housing_object: Mapped[HousingObject] = relationship(back_populates="registry_records")
+
+
+class LegalBasisCheck(Base):
+    __tablename__ = "legal_basis_checks"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    housing_object_id: Mapped[int] = mapped_column(ForeignKey("housing_objects.id"), index=True)
+    source_id: Mapped[str] = mapped_column(String(80), default="ashyq")
+    status: Mapped[str] = mapped_column(String(40))
+    dataset_name: Mapped[str] = mapped_column(String(300))
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    source_url: Mapped[str] = mapped_column(String(1000))
+    registry_record_id: Mapped[int | None] = mapped_column(ForeignKey("registry_records.id"))
+    housing_object: Mapped[HousingObject] = relationship(back_populates="legal_checks")

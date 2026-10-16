@@ -72,6 +72,7 @@ def calculate_score(evidence: list[dict[str, Any]], legal_basis_status: str | No
             factors.append(
                 {
                     "factor_code": code,
+                    "title_code": f"factor.{code}",
                     "title": TITLES[code],
                     "points": WEIGHTS[code] if index == 0 else 0,
                     "evidence_id": item.get("id"),

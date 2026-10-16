@@ -11,6 +11,7 @@ BASE = "https://ashyq.data.gov.kz/api/v0/registry-read-only/records/"
 
 
 class AshyqAdapter(SourceAdapter):
+    id = "ashyq"
     name = "Ashyq Data · объекты долевого строительства"
     url = f"https://ashyq.data.gov.kz/dataset/{DATASET_ID}"
 
@@ -38,19 +39,23 @@ class AshyqAdapter(SourceAdapter):
                     )
                     distributions.append({"id": item_id, **dist})
             return {
+                "id": self.id,
                 "name": self.name,
                 "url": self.url,
                 "data": {"metadata": aspects.get("dcat-dataset-strings", {}), "distributions": distributions},
                 "status": "available",
                 "fetched_at": fetched,
                 "message": None,
+                "message_code": "source_metadata_available",
             }
-        except (httpx.HTTPError, KeyError, ValueError) as error:
+        except (httpx.HTTPError, KeyError, ValueError):
             return {
+                "id": self.id,
                 "name": self.name,
                 "url": self.url,
                 "data": None,
                 "status": "no_data",
                 "fetched_at": fetched,
-                "message": f"Источник недоступен: {type(error).__name__}; риск не начисляется.",
+                "message": None,
+                "message_code": "source_unavailable_no_risk",
             }

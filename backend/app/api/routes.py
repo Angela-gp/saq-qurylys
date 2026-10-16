@@ -1,20 +1,37 @@
 from __future__ import annotations
 
-import csv
-import io
+import hashlib
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from rapidfuzz import fuzz
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.adapters.ashyq import AshyqAdapter
+from backend.app.adapters.ashyq_import import (
+    DATASET_NAME,
+    DATASET_URL,
+    looks_like_person_name,
+    map_row,
+    parse_rows,
+    record_key,
+)
 from backend.app.ai.extractor import extract_payment_offer
 from backend.app.database import get_db
 from backend.app.domain.scoring import calculate_score, has_readiness_mismatch, readiness_gap
-from backend.app.models import AuditLog, Evidence, HousingObject, Publication, Signal
+from backend.app.models import (
+    AuditLog,
+    Evidence,
+    HousingObject,
+    LegalBasisCheck,
+    Publication,
+    RegistryRecord,
+    Signal,
+)
 from backend.app.schemas import (
     EvidenceCreate,
     EvidenceReview,
@@ -28,6 +45,18 @@ from backend.app.schemas import (
 from backend.seed.seed import load_demo_data
 
 router = APIRouter(prefix="/api")
+SCREENSHOT_DIR = Path(__file__).resolve().parents[2] / "data" / "screenshots"
+ASHYQ_PUBLIC_FIELDS = (
+    "source_record_id",
+    "name",
+    "location",
+    "address",
+    "developer",
+    "permission_number",
+    "permission_start",
+    "permission_end",
+    "modified_at",
+)
 ALLOWED_TRANSITIONS = {
     "draft": {"in_review"},
     "in_review": {"confirmed", "returned"},
@@ -132,6 +161,7 @@ def _score(obj: HousingObject) -> dict:
 
 
 def _object_json(obj: HousingObject) -> dict:
+    latest_check = max(obj.legal_checks, key=lambda item: item.id, default=None)
     return {
         "id": obj.id,
         "name": obj.name,
@@ -148,6 +178,17 @@ def _object_json(obj: HousingObject) -> dict:
         "latitude": obj.latitude,
         "longitude": obj.longitude,
         "is_demo": obj.is_demo,
+        "legal_check": (
+            {
+                "status": latest_check.status,
+                "dataset_name": latest_check.dataset_name,
+                "imported_at": _iso(latest_check.imported_at),
+                "source_url": latest_check.source_url,
+                "registry_record_id": latest_check.registry_record_id,
+            }
+            if latest_check
+            else None
+        ),
         "score": _score(obj),
         "created_at": _iso(obj.created_at),
     }
@@ -175,8 +216,30 @@ def health():
 
 
 @router.get("/objects")
-def objects(db: Session = Depends(get_db)):
-    return [_object_json(o) for o in db.scalars(select(HousingObject).order_by(HousingObject.id)).all()]
+def objects(
+    q: str | None = Query(default=None, max_length=200),
+    zone: str | None = Query(default=None, pattern="^(red|yellow|green)$"),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=10000, ge=1, le=25000),
+    db: Session = Depends(get_db),
+):
+    statement = select(HousingObject).order_by(HousingObject.id)
+    if q and q.strip():
+        term = q.strip().replace("%", "\\%").replace("_", "\\_")
+        search = f"%{term}%"
+        statement = statement.where(
+            HousingObject.name.ilike(search, escape="\\")
+            | HousingObject.developer.ilike(search, escape="\\")
+            | HousingObject.address.ilike(search, escape="\\")
+        )
+    rows = db.scalars(statement).all()
+    if zone:
+        rows = [
+            obj for obj in rows
+            if (obj.is_demo or _score(obj)["factors"])
+            and _score(obj)["zone"] == zone
+        ]
+    return [_object_json(obj) for obj in rows[offset : offset + limit]]
 
 
 @router.post("/objects", status_code=201)
@@ -444,6 +507,53 @@ def link_publication(publication_id: int, payload: PublicationLinkUpdate, db: Se
     }
 
 
+@router.post("/publications/{publication_id}/screenshot")
+async def upload_publication_screenshot(
+    publication_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)
+):
+    publication = db.get(Publication, publication_id)
+    if not publication:
+        raise HTTPException(404, "publication_not_found")
+    extensions = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+    suffix = extensions.get(file.content_type or "")
+    if not suffix:
+        raise HTTPException(415, "unsupported_image_type")
+    content = await file.read(5_000_001)
+    if len(content) > 5_000_000:
+        raise HTTPException(413, "image_too_large")
+    if not content:
+        raise HTTPException(422, "empty_image")
+    signatures = {
+        ".jpg": content.startswith(b"\xff\xd8\xff"),
+        ".png": content.startswith(b"\x89PNG\r\n\x1a\n"),
+        ".webp": len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP",
+    }
+    if not signatures[suffix]:
+        raise HTTPException(415, "invalid_image_content")
+    SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    filename = f"{publication_id}-{hashlib.sha256(content).hexdigest()[:20]}{suffix}"
+    old_name = (publication.extraction or {}).get("screenshot_file")
+    if old_name and old_name != filename:
+        old_path = SCREENSHOT_DIR / Path(old_name).name
+        old_path.unlink(missing_ok=True)
+    (SCREENSHOT_DIR / filename).write_bytes(content)
+    publication.extraction = {**(publication.extraction or {}), "screenshot_file": filename}
+    db.commit()
+    return {"path": f"/api/publications/{publication_id}/screenshot"}
+
+
+@router.get("/publications/{publication_id}/screenshot")
+def get_publication_screenshot(publication_id: int, db: Session = Depends(get_db)):
+    publication = db.get(Publication, publication_id)
+    filename = (publication.extraction or {}).get("screenshot_file") if publication else None
+    if not filename:
+        raise HTTPException(404, "screenshot_not_found")
+    path = SCREENSHOT_DIR / Path(filename).name
+    if not path.is_file():
+        raise HTTPException(404, "screenshot_not_found")
+    return FileResponse(path)
+
+
 @router.post("/objects/{object_id}/evidence", status_code=201)
 def add_evidence(object_id: int, payload: EvidenceCreate, db: Session = Depends(get_db)):
     obj = db.get(HousingObject, object_id)
@@ -515,7 +625,8 @@ async def sources():
             result.append(
                 {
                     **source,
-                    "message": "Источник открыт для ручной проверки; автоматический доступ не настроен.",
+                    "message": None,
+                    "message_code": "manual_review_only",
                 }
             )
     return result
@@ -524,92 +635,207 @@ async def sources():
 @router.post("/import/ashyq", status_code=201)
 async def import_ashyq(file: UploadFile = File(...), db: Session = Depends(get_db)):
     if file.filename is None or not file.filename.lower().endswith((".csv", ".xlsx", ".xlsm")):
-        raise HTTPException(415, "Загрузите CSV или XLSX из набора Ashyq Data")
+        raise HTTPException(415, "unsupported_file_type")
     raw = await file.read(5_000_001)
     if len(raw) > 5_000_000:
-        raise HTTPException(413, "Файл больше 5 МБ")
+        raise HTTPException(413, "file_too_large")
     try:
-        if file.filename.lower().endswith(".csv"):
-            text = raw.decode("utf-8-sig")
-            dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t")
-            rows = list(csv.DictReader(io.StringIO(text), dialect=dialect))
-        else:
-            from openpyxl import load_workbook
-
-            workbook = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
-            sheet = workbook.active
-            values = sheet.iter_rows(values_only=True)
-            headers = [str(v or "").strip() for v in next(values)]
-            rows = [dict(zip(headers, row)) for row in values]
-    except (UnicodeDecodeError, csv.Error, StopIteration, ValueError) as error:
-        raise HTTPException(422, f"Не удалось разобрать файл: {type(error).__name__}") from error
+        rows = parse_rows(raw, file.filename)
+    except (UnicodeDecodeError, StopIteration, ValueError, OSError) as error:
+        raise HTTPException(422, "invalid_file_format") from error
     if len(rows) > 25000:
-        raise HTTPException(413, "В файле больше 25 000 строк")
-    imported = 0
-    duplicates = 0
-    for row in rows:
-        # Ashyq's published schema uses object_id/object_address, not object_name.
-        # Keep legacy aliases for manually prepared spreadsheets as well.
-        object_id = str(row.get("object_id") or row.get("id") or "").strip()
-        address = str(
-            row.get("object_address")
-            or row.get("address_name")
-            or row.get("Адрес")
-            or ""
-        ).strip()
-        location = str(row.get("object_location") or "").strip()
-        name = str(row.get("object_name") or row.get("Название объекта") or address or location).strip()
-        if not name and object_id:
-            name = f"Объект {object_id}"
+        raise HTTPException(413, "too_many_rows")
+    accepted = []
+    skipped = []
+    imported = updated = duplicates = 0
+    imported_at = datetime.now(timezone.utc)
+    for row_number, row in enumerate(rows, start=2):
+        mapped = map_row(row)
+        name = (mapped.get("name") or "").strip()
         if not name:
+            skipped.append({"row_number": row_number, "reason_code": "missing_object_name"})
             continue
-        bin_value = str(row.get("bin") or row.get("БИН") or "").strip()
-        bin_value = bin_value if len(bin_value) == 12 and bin_value.isdigit() else None
-        developer = str(
-            row.get("builder_name") or row.get("Застройщик") or row.get("authorized_org_name") or ""
-        ).strip()
-        exists = db.scalar(
+        if looks_like_person_name(name):
+            skipped.append({"row_number": row_number, "reason_code": "personal_name_in_object_name"})
+            continue
+        if len(name) > 300:
+            skipped.append({"row_number": row_number, "reason_code": "object_name_too_long"})
+            continue
+        developer = (mapped.get("developer") or "").strip()
+        # Do not retain names of sole proprietors/signatories as public company data.
+        if looks_like_person_name(developer):
+            developer = "Индивидуальный предприниматель"
+        address = (mapped.get("address") or "").strip()[:500]
+        source_record_id = mapped.get("source_record_id")
+        key = record_key(mapped)
+        existing_record = db.scalar(select(RegistryRecord).where(RegistryRecord.dedupe_key == key))
+        if existing_record:
+            obj = db.get(HousingObject, existing_record.housing_object_id)
+            if obj:
+                obj.name = name
+                obj.developer = developer
+                obj.bin = mapped.get("bin")
+                obj.address = address
+                obj.is_demo = False
+                existing_record.imported_at = imported_at
+                existing_record.source_url = DATASET_URL
+                existing_record.dataset_name = DATASET_NAME
+                existing_record.permission_number = mapped.get("permission_number")
+                existing_record.permission_start = mapped.get("permission_start")
+                existing_record.permission_end = mapped.get("permission_end")
+                # Retain configured public columns only; unknown and personal fields are discarded.
+                existing_record.payload = {
+                    key: mapped.get(key)
+                    for key in ASHYQ_PUBLIC_FIELDS
+                    if mapped.get(key) is not None
+                }
+                db.add(LegalBasisCheck(
+                    housing_object_id=obj.id,
+                    status="found",
+                    dataset_name=DATASET_NAME,
+                    imported_at=imported_at,
+                    source_url=DATASET_URL,
+                    registry_record_id=existing_record.id,
+                ))
+                updated += 1
+                accepted.append({"row_number": row_number, "status": "updated", "object_id": obj.id})
+                continue
+        # Merge a newly seen source row into an existing real object when it clearly matches.
+        obj = db.scalar(
             select(HousingObject).where(
+                HousingObject.is_demo.is_(False),
                 HousingObject.name == name,
                 HousingObject.developer == developer,
                 HousingObject.address == address,
             )
         )
-        if exists:
+        if obj:
             duplicates += 1
-            continue
-        obj = HousingObject(
-            name=name,
-            developer=developer,
-            bin=bin_value,
-            address=address,
-            region="",
-            status="unknown",
-            legal_basis_status="not_checked",
-            is_demo=False,
+        else:
+            obj = HousingObject(
+                name=name,
+                developer=developer,
+                bin=mapped.get("bin"),
+                address=address,
+                region="",
+                status="unknown",
+                legal_basis_status="not_checked",
+                is_demo=False,
+            )
+            db.add(obj)
+            db.flush()
+            imported += 1
+        record = RegistryRecord(
+            source_record_id=source_record_id,
+            dedupe_key=key,
+            housing_object_id=obj.id,
+            dataset_name=DATASET_NAME,
+            source_url=DATASET_URL,
+            imported_at=imported_at,
+            permission_number=mapped.get("permission_number"),
+            permission_start=mapped.get("permission_start"),
+            permission_end=mapped.get("permission_end"),
+            payload={
+                key: mapped.get(key)
+                for key in ASHYQ_PUBLIC_FIELDS
+                if mapped.get(key) is not None
+            },
         )
-        db.add(obj)
+        db.add(record)
         db.flush()
+        db.add(LegalBasisCheck(
+            housing_object_id=obj.id,
+            status="found",
+            dataset_name=DATASET_NAME,
+            imported_at=imported_at,
+            source_url=DATASET_URL,
+            registry_record_id=record.id,
+        ))
         _log(
             db,
             "imported_ashyq",
             obj.id,
-            actor="Импорт Ashyq",
+            actor="ashyq_import",
             details={
-                "source_id": object_id or None,
-                "permission_number": str(row.get("permission_number") or ""),
-                "date_start": str(row.get("date_start") or ""),
-                "date_end": str(row.get("date_end") or ""),
-                "time_modif": str(row.get("time_modif") or ""),
+                "source_id": source_record_id,
+                "registry_record_id": record.id,
+                "permission_number": mapped.get("permission_number"),
+                "date_start": mapped.get("permission_start"),
+                "date_end": mapped.get("permission_end"),
             },
         )
-        imported += 1
+        accepted.append({"row_number": row_number, "status": "accepted", "object_id": obj.id})
     db.commit()
     return {
         "uploaded_rows": len(rows),
         "imported_objects": imported,
+        "updated_objects": updated,
         "duplicates_skipped": duplicates,
-        "message": "Импортированы записи источника. Импорт не означает наличия риска и не создаёт R1.",
+        "accepted": accepted,
+        "skipped": skipped,
+        "dataset_name": DATASET_NAME,
+        "source_url": DATASET_URL,
+        "imported_at": imported_at.isoformat(),
+        "message_code": "import_complete_no_r1",
+    }
+
+
+@router.post("/objects/{object_id}/legal-check/ashyq")
+def check_legal_basis_against_ashyq(object_id: int, db: Session = Depends(get_db)):
+    obj = db.get(HousingObject, object_id)
+    if not obj:
+        raise HTTPException(404, "object_not_found")
+    records = db.scalars(select(RegistryRecord).where(RegistryRecord.source_id == "ashyq")).all()
+    def normalized(value: str | None) -> str:
+        return "".join(char for char in (value or "").casefold() if char.isalnum())
+    candidate = next(
+        (
+            record
+            for record in records
+            if record.housing_object_id == obj.id
+            or (
+                normalized(record.payload.get("name")) == normalized(obj.name)
+                and normalized(record.payload.get("developer")) == normalized(obj.developer)
+            )
+        ),
+        None,
+    )
+    dataset_loaded = bool(records)
+    imported_at = (
+        candidate.imported_at
+        if candidate
+        else max((record.imported_at for record in records), default=datetime.now(timezone.utc))
+    )
+    check = LegalBasisCheck(
+        housing_object_id=obj.id,
+        status="found" if candidate else "not_found" if dataset_loaded else "no_dataset",
+        dataset_name=DATASET_NAME,
+        imported_at=imported_at,
+        source_url=candidate.source_url if candidate else DATASET_URL,
+        registry_record_id=candidate.id if candidate else None,
+    )
+    db.add(check)
+    _log(
+        db,
+        "legal_basis_dataset_check",
+        obj.id,
+        actor="ashyq_check",
+        details={"status": check.status, "registry_record_id": check.registry_record_id},
+    )
+    db.commit()
+    return {
+        "status": check.status,
+        "dataset_name": check.dataset_name,
+        "imported_at": _iso(check.imported_at),
+        "source_url": check.source_url,
+        "registry_record_id": check.registry_record_id,
+        "message_code": (
+            "dataset_record_found"
+            if candidate
+            else "dataset_record_not_found_review_required"
+            if dataset_loaded
+            else "dataset_not_loaded_review_required"
+        ),
     }
 
 
@@ -636,6 +862,7 @@ def signals(db: Session = Depends(get_db)):
             "id": s.id,
             "housing_object_id": s.housing_object_id,
             "object_name": s.housing_object.name,
+            "is_demo": s.housing_object.is_demo,
             "status": s.status,
             "author": s.author,
             "comments": s.comments,

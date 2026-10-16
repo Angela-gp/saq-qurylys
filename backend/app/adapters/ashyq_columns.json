@@ -1,0 +1,12 @@
+{
+  "source_record_id": ["object_id", "record_id", "id", "Идентификатор объекта"],
+  "name": ["object_name", "object_title", "name", "Название объекта", "Наименование объекта"],
+  "location": ["object_location", "location", "Местоположение"],
+  "address": ["object_address", "address_name", "address", "Адрес", "Адрес объекта"],
+  "developer": ["builder_name", "developer_name", "authorized_org_name", "Застройщик", "Наименование застройщика", "Уполномоченная организация"],
+  "bin": ["builder_bin", "developer_bin", "БИН", "БИН застройщика"],
+  "permission_number": ["permission_number", "permit_number", "Разрешение", "Номер разрешения", "Номер документа"],
+  "permission_start": ["date_start", "permission_start", "Дата начала", "Дата выдачи"],
+  "permission_end": ["date_end", "permission_end", "Дата окончания"],
+  "modified_at": ["time_modif", "updated_at", "Дата изменения"]
+}
