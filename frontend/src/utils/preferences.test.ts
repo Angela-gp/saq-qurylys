@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { hasSeenTour, loadThemePreference, markTourSeen, saveThemePreference, skipUnavailableObjectStep } from './preferences'
+import { hasSeenTour, loadThemePreference, markTourSeen, saveThemePreference, skipUnavailableObjectStep, tourScrimRects } from './preferences'
 
 afterEach(() => localStorage.clear())
 
@@ -29,5 +29,12 @@ describe('saved interface preferences', () => {
     const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked') })
     expect(() => markTourSeen(true)).not.toThrow()
     set.mockRestore()
+  })
+
+  it('leaves a clear and clickable window around the guided-tour target', () => {
+    const blocks = tourScrimRects({ left: 100, top: 80, right: 260, bottom: 140 }, 1280, 800)
+    expect(blocks).toHaveLength(4)
+    expect(blocks.some((block) => 180 > block.left && 180 < block.left + block.width && 110 > block.top && 110 < block.top + block.height)).toBe(false)
+    expect(blocks.some((block) => block.left === 0 && block.top === 0)).toBe(true)
   })
 })

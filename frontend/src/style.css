@@ -2154,9 +2154,11 @@ mark { padding: 0 2px; border-radius: 3px; color: #573b00; background: #ffe3a0; 
 .map-score-marker.zone-neutral { background: #657780; }
 .map-score-marker.demo-marker::after { content: '•'; position: absolute; top: -4px; right: -3px; width: 11px; height: 11px; border: 1px solid white; border-radius: 50%; background: #798b92; color: white; font: 10px/9px Arial, sans-serif; }
 
-.tour-layer { position: fixed; inset: 0; z-index: 30000; pointer-events: none; }
-.tour-scrim { position: absolute; inset: 0; pointer-events: auto; background: #14242b99; backdrop-filter: blur(4px); }
-.tour-target { position: relative !important; z-index: 30001 !important; outline: 2px solid var(--accent) !important; outline-offset: 3px; box-shadow: 0 0 0 5px #176f9030; }
+.tour-layer { position: fixed; inset: 0; z-index: 30000; pointer-events: none; isolation: isolate; }
+.tour-scrim { position: fixed; inset: 0; pointer-events: none; }
+.tour-scrim-block { position: fixed; pointer-events: auto; background: #14242b99; backdrop-filter: blur(4px); }
+.tour-target { outline: 2px solid var(--accent) !important; outline-offset: 3px; box-shadow: 0 0 0 5px #176f9030; }
+.tour-passive-guard { position: fixed; z-index: 30001; pointer-events: auto; background: transparent; }
 .tour-popover { position: fixed; z-index: 30002; width: min(340px, calc(100vw - 96px)); padding: 16px; pointer-events: auto; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); color: var(--text); box-shadow: 0 10px 40px #0d1c2466; }
 .tour-count { color: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .tour-popover h2 { margin: 7px 0; font-size: 17px; }
@@ -2204,8 +2206,6 @@ mark { padding: 0 2px; border-radius: 3px; color: #573b00; background: #ffe3a0; 
 .overview-object-row { grid-template-columns: 3px minmax(0, 1fr) 54px 55px; }
 .overview-row-score strong { font-variant-numeric: tabular-nums; }
 .demo-banner { display: none !important; }
-.tour-layer { position: fixed; isolation: isolate; }
-.tour-scrim { position: fixed; inset: 0; }
 .tour-popover { z-index: 30003; }
 .modal-backdrop { position: fixed; inset: 0; z-index: 1000; }
 .source-check-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }

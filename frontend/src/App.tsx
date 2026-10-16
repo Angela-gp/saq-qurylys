@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next'
 import i18n, { formatDate, formatNumber } from './i18n'
 import { api, HousingObject, ImportResponse, PublicationResult, TelegramImportResponse } from './api'
 import { previewFactorConfirmation, unchangedAfterRejection } from './utils/assessment'
-import { hasSeenTour, loadThemePreference, markTourSeen, saveThemePreference, skipUnavailableObjectStep } from './utils/preferences'
+import { hasSeenTour, loadThemePreference, markTourSeen, saveThemePreference, skipUnavailableObjectStep, tourScrimRects } from './utils/preferences'
 
 const zoneName = (zone: string) => i18n.t(`zone.${zone}`)
 const factorName = (code: string) => i18n.t(`factor.${code}`)
@@ -1284,6 +1284,7 @@ function GuidedTour({ open, onClose }: { open: boolean; onClose: () => void }) {
   }, [location.pathname, navigate, open, step, steps.length])
 
   if (!open || !step) return null
+  const scrimRects = tourScrimRects(targetRect, window.innerWidth, window.innerHeight)
   const popoverStyle: CSSProperties = targetRect
     ? {
         top: Math.min(targetRect.bottom + 12, window.innerHeight - 210),
@@ -1292,7 +1293,22 @@ function GuidedTour({ open, onClose }: { open: boolean; onClose: () => void }) {
     : { top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }
   return (
     <div className="tour-layer" role="presentation">
-      <div className="tour-scrim" aria-hidden="true" />
+      <div className="tour-scrim" aria-hidden="true">
+        {scrimRects.map((rect, index) => (
+          <span
+            className="tour-scrim-block"
+            key={index}
+            style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
+          />
+        ))}
+      </div>
+      {targetRect && !step.action && (
+        <span
+          className="tour-passive-guard"
+          aria-hidden="true"
+          style={{ left: targetRect.left, top: targetRect.top, width: targetRect.width, height: targetRect.height }}
+        />
+      )}
       <section
         className="tour-popover"
         ref={dialogRef}
