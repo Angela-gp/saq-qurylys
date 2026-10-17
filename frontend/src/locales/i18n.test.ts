@@ -22,6 +22,20 @@ describe('complete RU/KK dictionaries', () => {
     }
   })
 
+  it('contains the user-facing strings required by login, sources, errors, and the guided tour', () => {
+    const requiredKeys = [
+      'auth.title', 'auth.invalidCredentials', 'auth.rateLimited', 'auth.role.analyst',
+      'sources.manualReview', 'sources.manualIsNotMissing', 'sources.whatToCheck.homeportal',
+      'errors.unexpected', 'errors.file_too_large', 'errors.analyst_role_required',
+      'errors.authentication_required', 'errors.invalid_telegram_export', 'tour.start', 'tour.step1.title',
+      'tour.step9.body', 'tour.fallback',
+    ]
+    for (const key of requiredKeys) {
+      expect(ru[key]?.trim(), `ru.${key}`).toBeTruthy()
+      expect(kk[key]?.trim(), `kk.${key}`).toBeTruthy()
+    }
+  })
+
   it('does not leave Russian wording untranslated except proper names and codes', () => {
     for (const [key, value] of Object.entries(ru)) {
       if (allowedSame.has(key) || /^R[1-6]$/.test(value)) continue

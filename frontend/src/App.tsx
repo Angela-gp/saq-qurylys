@@ -1112,6 +1112,7 @@ function SignalsPage() {
                 <b>{c.author}</b> · {c.text}
               </p>
             ))}
+            {s.is_demo && <small className="signal-print-disclaimer">{t('common.demoDisclaimer')}</small>}
             <div className="signal-actions print-only-hidden">
               {s.status === 'draft' && (
                 <button onClick={() => transition.mutate({ id: s.id, status: 'in_review' })}>

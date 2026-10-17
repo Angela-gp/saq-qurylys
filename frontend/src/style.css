@@ -1664,6 +1664,14 @@ blockquote {
   .signal-card:not(.print-target) {
     display: none !important;
   }
+  .signal-print-disclaimer {
+    display: block;
+    margin-top: 20px;
+    padding-top: 8px;
+    border-top: 1px solid #9aa3a8;
+    color: #4c565c;
+    font-size: 9pt;
+  }
 }
 
 /* Overview workspace */
@@ -2257,7 +2265,6 @@ mark { padding: 0 2px; border-radius: 3px; color: #573b00; background: #ffe3a0; 
   .main { margin: 0 !important; }
   .page { padding: 0 !important; background: #fff !important; }
   .signal-card { border: 0 !important; box-shadow: none !important; break-inside: avoid; }
-  .signal-card::after { content: 'Демонстрационные данные · не юридическое заключение'; display: block; margin-top: 20px; color: #444; font-size: 8pt; }
   @page { size: A4; margin: 16mm; }
 }
 

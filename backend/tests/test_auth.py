@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from backend.app.auth import hash_password
@@ -63,6 +64,89 @@ def test_observer_cannot_confirm_signal(test_client):
     assert rejected.json()["error_code"] == "analyst_role_required"
 
 
+@pytest.mark.parametrize(
+    "operation",
+    [
+        "confirm_signal",
+        "return_signal",
+        "accept_hypothesis",
+        "import_ashyq",
+        "import_telegram",
+        "source_check",
+    ],
+)
+def test_observer_cannot_perform_analyst_actions(test_client, operation):
+    obj_response = test_client.post("/api/objects", json={"name": "Test object"})
+    assert obj_response.status_code == 201, obj_response.text
+    obj = obj_response.json()
+    evidence = test_client.post(
+        f"/api/objects/{obj['id']}/evidence",
+        json={
+            "factor_code": "R2",
+            "quote": "deposit",
+            "source": "Test publication",
+            "source_url": "https://example.org/ad",
+            "rationale": "Fictional hypothesis for role testing.",
+        },
+    ).json()
+    signal = test_client.post(
+        "/api/signals", json={"housing_object_id": obj["id"], "author": "Spoofed author"}
+    ).json()
+    test_client.patch(
+        f"/api/signals/{signal['id']}/status",
+        json={"status": "in_review", "author": "Spoofed author", "comment": "Ready for review"},
+    )
+
+    with TestClient(app) as observer:
+        login = observer.post(
+            "/api/auth/login", json={"username": "observer", "password": "test-observer-password"}
+        )
+        assert login.status_code == 200
+        if operation == "confirm_signal":
+            response = observer.patch(
+                f"/api/signals/{signal['id']}/status",
+                json={"status": "confirmed", "author": "Spoofed author", "comment": "Confirm"},
+            )
+        elif operation == "return_signal":
+            response = observer.patch(
+                f"/api/signals/{signal['id']}/status",
+                json={
+                    "status": "returned",
+                    "author": "Spoofed author",
+                    "comment": "More evidence needed",
+                },
+            )
+        elif operation == "accept_hypothesis":
+            response = observer.patch(
+                f"/api/evidence/{evidence['id']}/review",
+                json={"status": "fact", "reviewer": "Подмена автора", "source_url": "https://example.org/ad"},
+            )
+        elif operation == "import_ashyq":
+            response = observer.post(
+                "/api/import/ashyq",
+                files={"file": ("sample.csv", b"object_id,builder_name\\n1,Example", "text/csv")},
+            )
+        elif operation == "import_telegram":
+            response = observer.post(
+                "/api/import/telegram",
+                files={"file": ("result.json", b'{"messages":[]}', "application/json")},
+            )
+        else:
+            response = observer.post(
+                f"/api/objects/{obj['id']}/source-checks",
+                json={
+                    "source_id": "homeportal",
+                    "status": "found",
+                    "actor": "Подмена автора",
+                    "comment": "Учебная проверка",
+                    "source_url": "https://homeportal.kz",
+                },
+            )
+
+    assert response.status_code == 403, operation
+    assert response.json()["error_code"] == "analyst_role_required"
+
+
 def test_audit_author_comes_from_session_not_request_body(test_client):
     obj = test_client.post("/api/objects", json={"name": "Аудит объекта"}).json()
     signal = test_client.post(
@@ -72,3 +156,17 @@ def test_audit_author_comes_from_session_not_request_body(test_client):
     audit = test_client.get(f"/api/objects/{obj['id']}/audit").json()
     created = next(item for item in audit if item["action"] == "signal_created")
     assert created["actor"] == "Аналитик А"
+
+    test_client.post(
+        f"/api/objects/{obj['id']}/source-checks",
+        json={
+            "source_id": "homeportal",
+            "status": "found",
+            "actor": "Поддельный автор проверки",
+            "comment": "Проверено вручную",
+            "source_url": "https://homeportal.kz",
+        },
+    )
+    audit = test_client.get(f"/api/objects/{obj['id']}/audit").json()
+    checked = next(item for item in audit if item["action"] == "source_check_recorded")
+    assert checked["actor"] == "Аналитик А"
