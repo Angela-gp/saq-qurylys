@@ -11,7 +11,10 @@ def _text(value: Any) -> str:
     if isinstance(value, str):
         return value
     if isinstance(value, list):
-        return "".join(part if isinstance(part, str) else str(part.get("text", "")) for part in value)
+        return "".join(
+            part if isinstance(part, str) else str(part.get("text", "")) if isinstance(part, dict) else ""
+            for part in value
+        )
     return ""
 
 
