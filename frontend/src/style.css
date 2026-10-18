@@ -2358,6 +2358,7 @@ body { color: var(--text); background: var(--canvas); }
   [data-theme='dark'] .result-panel blockquote,
   [data-theme='dark'] .notice { background: var(--surface-muted); color: var(--text); border-color: var(--border); }
   [data-theme='dark'] .object-row:hover { background: var(--accent-soft); }
+  [data-theme='dark'] .queue-header h2,
   [data-theme='dark'] .crumb,
   [data-theme='dark'] .dashboard-top-title,
   [data-theme='dark'] .object-main strong,
