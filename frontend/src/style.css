@@ -2344,3 +2344,48 @@ body { color: var(--text); background: var(--canvas); }
   .overview-map-panel { min-height: 280px; }
   .overview-map-heading { height: 44px; }
 }
+
+/* Keep the existing theme readable on registry, evidence and map surfaces. */
+.map-score-marker sup { position: absolute; top: -3px; right: -3px; width: 12px; height: 12px; border-radius: 50%; border: 1px solid white; color: white; background: #657780; font: 9px/11px Arial, sans-serif; }
+@media screen {
+  [data-theme='dark'] .leaflet-tile-pane { filter: invert(.9) hue-rotate(180deg) brightness(.85); }
+  [data-theme='dark'] .leaflet-popup-content-wrapper,
+  [data-theme='dark'] .leaflet-popup-tip,
+  [data-theme='dark'] .object-row,
+  [data-theme='dark'] .risk-explanation,
+  [data-theme='dark'] .what-if-panel,
+  [data-theme='dark'] .object-score-panel,
+  [data-theme='dark'] .result-panel blockquote,
+  [data-theme='dark'] .notice { background: var(--surface-muted); color: var(--text); border-color: var(--border); }
+  [data-theme='dark'] .object-row:hover { background: var(--accent-soft); }
+  [data-theme='dark'] .crumb,
+  [data-theme='dark'] .dashboard-top-title,
+  [data-theme='dark'] .object-main strong,
+  [data-theme='dark'] .source-row strong,
+  [data-theme='dark'] .signal-factors b,
+  [data-theme='dark'] .what-if-item,
+  [data-theme='dark'] .risk-evidence-links { color: var(--text); }
+  [data-theme='dark'] .object-main small,
+  [data-theme='dark'] .score-value small,
+  [data-theme='dark'] .risk-explanation-lead,
+  [data-theme='dark'] .what-if-disclaimer,
+  [data-theme='dark'] .what-if-item small,
+  [data-theme='dark'] .risk-rule-note,
+  [data-theme='dark'] .risk-evidence-links small,
+  [data-theme='dark'] .signal-top small,
+  [data-theme='dark'] .signal-create p { color: var(--text-muted); }
+  [data-theme='dark'] .risk-evidence-links a { color: var(--accent); }
+  [data-theme='dark'] .review-clear { color: var(--zone-green); background: var(--risk-green-bg); }
+  [data-theme='dark'] .zone-filter.zone-red strong,
+  [data-theme='dark'] .pill.zone-red,
+  [data-theme='dark'] .score-panel.zone-red { color: var(--zone-red); background: var(--risk-red-bg); }
+  [data-theme='dark'] .zone-filter.zone-yellow strong,
+  [data-theme='dark'] .pill.zone-yellow,
+  [data-theme='dark'] .score-panel.zone-yellow { color: var(--zone-yellow); background: var(--risk-yellow-bg); }
+  [data-theme='dark'] .zone-filter.zone-green strong,
+  [data-theme='dark'] .pill.zone-green,
+  [data-theme='dark'] .score-panel.zone-green { color: var(--zone-green); background: var(--risk-green-bg); }
+}
+@media print {
+  .signal-print-disclaimer { position: fixed; bottom: 0; left: 0; right: 0; }
+}

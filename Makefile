@@ -10,7 +10,7 @@ run:
 seed:
 	python -m backend.seed.seed
 
-test:
+test: build
 	python -m pytest backend/tests -q
 	cd frontend && npm test -- --run
 

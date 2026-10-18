@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet'
 import { divIcon } from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -44,16 +44,7 @@ function MapSizeInvalidator() {
   return null
 }
 function ThemeMapTiles() {
-  const [dark, setDark] = useState(document.documentElement.dataset.theme === 'dark')
-  useEffect(() => {
-    const observer = new MutationObserver(() => setDark(document.documentElement.dataset.theme === 'dark'))
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
-    return () => observer.disconnect()
-  }, [])
-  return <TileLayer
-    attribution={dark ? '&copy; OpenStreetMap contributors &copy; CARTO' : '&copy; OpenStreetMap'}
-    url={dark ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png' : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'}
-  />
+  return <TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 }
 
 export default function ObjectMap({ mappableObjects, selectedId, hoveredId, onSelect }: { mappableObjects: HousingObject[]; selectedId: number | null; hoveredId: number | null; onSelect: (id: number) => void }) {

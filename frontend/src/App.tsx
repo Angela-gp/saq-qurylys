@@ -1037,7 +1037,7 @@ function SignalsPage() {
             </div>
             {(s.comments || []).map((c, i) => (
               <p className="comment" key={i}>
-                <b>{c.author}</b> · {c.text}
+                <b>{c.author}</b> · {formatDate(c.created_at, { dateStyle: 'short', timeStyle: 'short' })}{c.text ? ` · ${c.text}` : ''}
               </p>
             ))}
             {s.is_demo && <small className="signal-print-disclaimer">{t('common.demoDisclaimer')}</small>}
