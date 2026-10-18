@@ -6,11 +6,11 @@
 
 - Backend: Python 3.11+, FastAPI, Pydantic v2, SQLAlchemy 2 и SQLite; HTTPX для запросов; RapidFuzz для списка кандидатов; openpyxl для Excel; Argon2 для хэшей паролей.
 - Frontend: React 18, TypeScript и Vite; TanStack Query, React Router, Leaflet/react-leaflet и i18next/react-i18next. Интерфейс оформлен обычным CSS с токенами тем.
-- Проверки: pytest и Ruff для backend, Vitest и ESLint для frontend. Полный список версий и зависимостей фиксируется в `requirements.txt` и `frontend/package-lock.json`.
+- Проверки: pytest и Ruff для backend, Vitest и ESLint для frontend. Диапазоны Python-зависимостей заданы в `requirements.txt`; frontend-зависимости зафиксированы в `frontend/package-lock.json`. Версии, использованные при проверке чистой установки, приведены в `docs/submission-review.md`.
 
-## Запуск на Windows (папка без кириллицы, например `C:\work\saq-qurylys`)
+## Запуск на Windows (папка с латинским именем)
 
-Требуются Python 3.11+ и Node.js 20+.
+Требуются Python 3.11+ и Node.js 20.19+ либо 22.12+ (проверено на Python 3.12 и Node.js 24).
 
 Короткий порядок запуска — 4 шага установки, затем отдельные команды старта двух серверов:
 
@@ -25,7 +25,7 @@ Copy-Item .env.example .env
 
 ### Вход и роли
 
-Перед первым запуском задайте в локальном `.env` случайный `SESSION_SECRET` (например, `python -c "import secrets; print(secrets.token_urlsafe(48))"`). При желании задайте пароли `SAQ_PASSWORD_ANALYST`, `SAQ_PASSWORD_ANALYST_BACKUP` и `SAQ_PASSWORD_OBSERVER` там же. Затем выполните `python -m backend.seed.seed`: команда создаст вымышленные учётные записи `analyst`, `analyst.backup` и `observer`, сохранив только Argon2-хэши. Если пароли не заданы, команда сгенерирует одноразовые и выведет их в терминал; сохраните их в менеджере паролей. Паролей в репозитории нет.
+Перед первым запуском задайте в локальном `.env` случайный `SESSION_SECRET` (например, `python -c "import secrets; print(secrets.token_urlsafe(48))"`). При желании задайте пароли `SAQ_PASSWORD_ANALYST`, `SAQ_PASSWORD_ANALYST_BACKUP` и `SAQ_PASSWORD_OBSERVER` там же. Затем выполните `python -m backend.seed.seed`: команда создаст вымышленные учётные записи `analyst`, `analyst.backup` и `observer`, сохранив только Argon2-хэши. Если пароли не заданы, команда сгенерирует одноразовые и выведет их в терминал; сохраните их в менеджере паролей. Действующих паролей в репозитории нет; строки паролей в тестах — искусственные тестовые значения. Пустые поля из `.env.example` также запускают генерацию непустых паролей.
 
 Пользователи предсозданы, самостоятельной регистрации нет. Имена учётных записей: `analyst` (аналитик А), `analyst.backup` (аналитик В), `observer` (наблюдатель Б). Для чистой установки задайте собственные пароли через локальный `.env` или используйте одноразовые, показанные seed-командой; не публикуйте их.
 
@@ -41,7 +41,7 @@ python -m uvicorn backend.app.main:app --reload
 
 ```powershell
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -53,10 +53,11 @@ npm run dev
 python3 -m venv .venv && . .venv/bin/activate
 python -m pip install -r requirements.txt
 cp .env.example .env
-python -m backend.seed.seed  # по желанию: демо A/B/C
+# Задайте SESSION_SECRET в .env, как описано в разделе «Вход и роли».
+python -m backend.seed.seed  # создаёт учётные записи и демо A/B/C
 ```
 
-В отдельных терминалах выполните `python -m uvicorn backend.app.main:app --reload` и `cd frontend && npm install && npm run dev`.
+В отдельных терминалах выполните `python -m uvicorn backend.app.main:app --reload` и `cd frontend && npm ci && npm run dev`.
 
 ### Подключить демонстрационный сценарий
 
@@ -72,7 +73,7 @@ python -m backend.seed.seed
 
 На странице «Обзор» или «Реестр» загрузите CSV/XLSX из [набора Ashyq Data о долевом участии](https://ashyq.data.gov.kz/dataset/magda-ds-b80110e9-218a-42ba-b8c8-01fa5e4c82c8). Импорт ограничен 5 МБ и 25 000 строками, формирует списки принятых и пропущенных строк с причинами, дедуплицирует записи и сохраняет источник, набор и время загрузки. Неописанные поля не сохраняются; ФИО в поле названия отклоняется. Импортированная запись не создаёт R1. Результат «не найдено» требует ручной проверки; R1 добавляется только аналитиком с URL источника.
 
-Реальная выгрузка Ashyq в этой среде не предоставлена и не проверена. Парсер и маппинг проверены на искусственном образце [`data/sample/ashyq-synthetic-sample.csv`](data/sample/ashyq-synthetic-sample.csv), составленном по опубликованным заголовкам (`object_id`, `object_location`, `builder_name`, `authorized_org_name`, `object_address`, `date_start`, `date_end`, `permission_number`, `time_modif`). Это не подтверждает совместимость со всеми вариантами настоящего файла; при первой загрузке сверьте заголовки и смысл полей с первоисточником. Сопоставление значений и их актуальность аналитик проверяет вручную.
+Реального CSV/XLSX в `data/raw/` на финальной проверке 18.10.2026 нет; импорт проверен на образце. Метаданные официального каталога доступны, однако скачивание CSV ранее завершалось ошибкой проверки TLS-сертификата хоста файла. Парсер и маппинг проверены на искусственном образце [`data/sample/ashyq-synthetic-sample.csv`](data/sample/ashyq-synthetic-sample.csv), составленном по опубликованным заголовкам (`object_id`, `object_location`, `builder_name`, `authorized_org_name`, `object_address`, `date_start`, `date_end`, `permission_number`, `time_modif`). Это не подтверждает совместимость со всеми вариантами настоящего файла; при первой загрузке сверьте заголовки и смысл полей с первоисточником. Сопоставление значений и их актуальность аналитик проверяет вручную.
 
 ### Публичные Telegram-публикации
 
@@ -109,18 +110,22 @@ API показывает доступность метаданных Ashyq. Пр
 
 Контрольные цитаты A/B/C являются вымышленными и берутся из текстов соответствующих ДЕМО-публикаций; тест проверяет совпадение цитаты и текста. Ссылки на seed-публикации используют `example.invalid` и не ведут на реальные объявления.
 
-**Пока не реализовано или не проверено:** автоматическое получение записей из большинства реестров; импорт реального скачанного CSV Ashyq; проверка LLM с ключом; OCR; проверка юридического перевода носителем казахского языка; усиленный многоузловой rate limiting для публичного развёртывания; сохранение PDF в обычном Chrome/Edge. Печать вызывает `window.print`, но её системный диалог и итоговый PDF здесь не проверены. Не выдавайте эти пункты за готовые интеграции.
+**Пока не реализовано или не проверено:** автоматическое получение записей из большинства реестров; импорт реального скачанного CSV Ashyq; проверка LLM с ключом; OCR; проверка юридического перевода носителем казахского языка; усиленный многоузловой rate limiting для публичного развёртывания; ручная проверка системного диалога печати обычного Chrome/Edge. Печатная версия экспортирована и проверена в Chromium на A4, RU/KK; системный диалог обычного браузера отдельно не проверялся. Не выдавайте эти пункты за готовые интеграции.
 
-## Команды
+## Команды проверки
+
+Сначала установите зависимости и соберите frontend: существующий backend-тест `/signals` проверяет production SPA из `frontend/dist`. Запускайте из корня проекта, в активированном Python-окружении:
 
 ```powershell
+npm ci --prefix frontend
+npm run build --prefix frontend
 python -m pytest backend/tests -q
-cd frontend; npm test -- --run
-cd frontend; npm run build
-cd frontend; npm run lint
+python -m ruff check backend/app backend/seed backend/tests
+npm test --prefix frontend -- --run
+npm run lint --prefix frontend
 ```
 
-Для backend поддерживается также `make run`, `make seed`, `make test` в окружении с Make. Чтобы собрать frontend и раздавать его FastAPI, выполните `cd frontend; npm run build`, затем запустите API.
+Для Linux команды те же после активации `.venv`. `make test` сначала выполняет сборку, затем оба набора тестов. `make run` запускает backend; frontend в режиме разработки запускается отдельно через `npm run dev --prefix frontend`. Для production-сборки сначала выполните `npm run build --prefix frontend`, затем запустите API и откройте `http://127.0.0.1:8000`: FastAPI раздаёт собранный SPA, включая прямые ссылки `/signals` и `/sources`.
 
 ## Структура
 
@@ -150,15 +155,32 @@ docs/                  архитектура, ИИ, демо-сценарий �
 
 Проверочный сценарий использует только вымышленные seed-записи. Текст рекламы здесь иллюстративный; ссылка `example.org` не является реальным объявлением.
 
-## Скриншоты интерфейса (казахский язык)
+## Скриншоты и печатные примеры
 
-Снимки страниц собраны в [`docs/screenshots/`](docs/screenshots/):
+Все снимки получены из production-сборки на чистом клоне; данные вымышленные. Карта использует внешние плитки OpenStreetMap, для их загрузки нужен интернет. Тёмный вариант карты использует те же плитки с фильтром темы.
 
-| Обзор | Реестр | Реклама | Сигналы | Источники |
+| RU · светлая | RU · тёмная |
+|---|---|
+| ![Обзор RU светлая](docs/screenshots/overview-ru-light.jpg) | ![Обзор RU тёмная](docs/screenshots/overview-ru-dark.jpg) |
+
+| KK · светлая | KK · тёмная |
+|---|---|
+| ![Шолу KK жарық](docs/screenshots/overview-kk-light.jpg) | ![Шолу KK қараңғы](docs/screenshots/overview-kk-dark.jpg) |
+
+| Экран | RU светлая | RU тёмная | KK светлая | KK тёмная |
 |---|---|---|---|---|
-| ![Шолу](docs/screenshots/overview.jpg) | ![Тізілім](docs/screenshots/registry.jpg) | ![Жарнама](docs/screenshots/ads.jpg) | ![Сигналдар](docs/screenshots/signals.jpg) | ![Дереккөздер](docs/screenshots/sources.jpg) |
+| Вход | [Снимок](docs/screenshots/login-ru-light.jpg) | [Снимок](docs/screenshots/login-ru-dark.jpg) | [Снимок](docs/screenshots/login-kk-light.jpg) | [Снимок](docs/screenshots/login-kk-dark.jpg) |
+| Обзор · 1280 | [Снимок](docs/screenshots/overview-ru-light.jpg) | [Снимок](docs/screenshots/overview-ru-dark.jpg) | [Снимок](docs/screenshots/overview-kk-light.jpg) | [Снимок](docs/screenshots/overview-kk-dark.jpg) |
+| Обзор · 1920 | [Снимок](docs/screenshots/overview-1920-ru-light.jpg) | [Снимок](docs/screenshots/overview-1920-ru-dark.jpg) | [Снимок](docs/screenshots/overview-1920-kk-light.jpg) | [Снимок](docs/screenshots/overview-1920-kk-dark.jpg) |
+| Реестр | [Снимок](docs/screenshots/registry-ru-light.jpg) | [Снимок](docs/screenshots/registry-ru-dark.jpg) | [Снимок](docs/screenshots/registry-kk-light.jpg) | [Снимок](docs/screenshots/registry-kk-dark.jpg) |
+| Карточка ЖК | [Снимок](docs/screenshots/object-ru-light.jpg) | [Снимок](docs/screenshots/object-ru-dark.jpg) | [Снимок](docs/screenshots/object-kk-light.jpg) | [Снимок](docs/screenshots/object-kk-dark.jpg) |
+| Реклама / гипотеза | [Снимок](docs/screenshots/ads-ru-light.jpg) | [Снимок](docs/screenshots/ads-ru-dark.jpg) | [Снимок](docs/screenshots/ads-kk-light.jpg) | [Снимок](docs/screenshots/ads-kk-dark.jpg) |
+| Сигналы | [Снимок](docs/screenshots/signals-ru-light.jpg) | [Снимок](docs/screenshots/signals-ru-dark.jpg) | [Снимок](docs/screenshots/signals-kk-light.jpg) | [Снимок](docs/screenshots/signals-kk-dark.jpg) |
+| Источники | [Снимок](docs/screenshots/sources-ru-light.jpg) | [Снимок](docs/screenshots/sources-ru-dark.jpg) | [Снимок](docs/screenshots/sources-kk-light.jpg) | [Снимок](docs/screenshots/sources-kk-dark.jpg) |
 
-PDF-пример сигнала для сценария B: [`docs/examples/scenario-b-signal.pdf`](docs/examples/scenario-b-signal.pdf). В нём использованы только вымышленные учебные сведения.
+Пример сигнала B (70, красная зона), A4 с демо-колонтитулом: [RU PDF](docs/examples/signal-B.pdf), [KK PDF](docs/examples/signal-B-kk.pdf). Оба экспортированы из тёмной темы приложения с включёнными правилами светлой печати; это не вручную сверстанные макеты.
+
+Результаты финального прогона и границы проверки: [docs/submission-review.md](docs/submission-review.md). Полный список отслеживаемых файлов: [docs/tracked-files.txt](docs/tracked-files.txt). Публикация выполняется только после отдельного подтверждения владельца.
 
 ## Ограничения прототипа
 
@@ -170,8 +192,8 @@ PDF-пример сигнала для сценария B: [`docs/examples/scena
 - Локальные RU/KK правила извлечения проверены. LLM-режим реализован, но **не тестировался с настоящим API-ключом**. OCR отсутствует.
 - Юридические формулировки на казахском языке требуют проверки носителем; список терминов находится в [`docs/i18n-review.md`](docs/i18n-review.md).
 - Координаты не вычисляются по адресу; на карте отображаются только координаты, уже записанные в объекте.
-- Печать вызывает `window.print`; в репозитории есть искусственный пример PDF, но системный диалог Chrome/Edge здесь не проверялся.
-- Production-сборка проходит, но Vite сообщает, что основной JavaScript chunk немного больше рекомендованных 500 КБ (последняя проверенная сборка: около 522 КБ до gzip). Сейчас код не разбит на lazy chunks.
+- Печать вызывает `window.print`; PDF RU/KK проверены экспортом Chromium на A4. Системный диалог обычного Chrome/Edge и физическая печать отдельно не проверялись.
+- Карта и Guided Tour загружаются лениво; основной JS-файл около 352 КБ, карта около 155 КБ, тур около 4 КБ до gzip. Предупреждение Vite о chunk >500 КБ устранено. `npm ci` сообщает о deprecated `whatwg-encoding` в зависимостях тестового окружения jsdom; это не ошибка запуска приложения. Предупреждений Starlette при финальном pytest-прогоне не было.
 - Видеозапись не включена в репозиторий; порядок демонстрации описан в [`docs/demo-runbook.md`](docs/demo-runbook.md).
 
-Перед публикацией репозитория проверьте локальные изменения и удалите `.env` и файлы базы, если они появились. Они уже добавлены в `.gitignore`.
+Локальные `.env`, базы SQLite, `.venv`, `node_modules`, исходные выгрузки `data/raw/` и рабочее ТЗ исключены из Git. Не добавляйте их принудительно. Публикуются только файлы из проверенного списка индекса; история также проверена на секреты.
