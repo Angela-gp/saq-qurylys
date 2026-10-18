@@ -129,7 +129,7 @@ def seed_auth_users(session_factory=SessionLocal, passwords: dict[str, str] | No
             if db.scalar(select(User).where(User.username == item["username"])):
                 continue
             password = (passwords or {}).get(item["username"]) or os.getenv(item["password_env"])
-            generated = password is None
+            generated = not password or not password.strip()
             if generated:
                 password = secrets.token_urlsafe(18)
             user = User(

@@ -10,8 +10,7 @@ __pycache__/
 node_modules/
 frontend/dist/
 backend/data/
-data/raw/*
-!data/raw/.gitkeep
+data/raw/
 *.db
 *.sqlite
 *.sqlite3
@@ -19,3 +18,6 @@ coverage/
 *.tsbuildinfo
 playwright-report/
 test-results/
+
+# Local organizer brief supplied by the team
+/Кейс*.pdf

@@ -1,13 +1,14 @@
-import { CSSProperties, createContext, FormEvent, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import { CSSProperties, createContext, FormEvent, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { Link, NavLink, Route, Routes, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet'
-import { divIcon } from 'leaflet'
 import { useTranslation } from 'react-i18next'
 import i18n, { formatDate, formatNumber } from './i18n'
 import { api, HousingObject, ImportResponse, PublicationResult, SessionUser, TelegramImportResponse } from './api'
 import { previewFactorConfirmation, unchangedAfterRejection } from './utils/assessment'
-import { hasSeenTour, loadThemePreference, markTourSeen, saveThemePreference, skipUnavailableObjectStep, tourScrimRects } from './utils/preferences'
+import { hasSeenTour, loadThemePreference, saveThemePreference } from './utils/preferences'
+
+const ObjectMap = lazy(() => import('./components/ObjectMap'))
+const GuidedTour = lazy(() => import('./components/GuidedTour'))
 
 const zoneName = (zone: string) => i18n.t(`zone.${zone}`)
 const factorName = (code: string) => i18n.t(`factor.${code}`)
@@ -72,55 +73,6 @@ function EmptyState({ onImport }: { onImport: () => void }) {
       </button>
     </section>
   )
-}
-function MapViewport({ points }: { points: [number, number][] }) {
-  const map = useMap()
-  useEffect(() => {
-    if (!points.length) return
-    const frame = requestAnimationFrame(() => {
-      map.invalidateSize({ animate: false, pan: false })
-      if (points.length === 1) {
-        map.setView(points[0], 13, { animate: false })
-        return
-      }
-      map.fitBounds(points, { padding: [48, 48], maxZoom: 14, animate: false })
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [map, points])
-  return null
-}
-function MapSizeInvalidator() {
-  const map = useMap()
-  useEffect(() => {
-    const container = map.getContainer()
-    let frame = 0
-    const invalidate = () => {
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(() => map.invalidateSize({ animate: false, pan: false }))
-    }
-    const observer = new ResizeObserver(invalidate)
-    observer.observe(container)
-    window.addEventListener('resize', invalidate)
-    invalidate()
-    return () => {
-      cancelAnimationFrame(frame)
-      observer.disconnect()
-      window.removeEventListener('resize', invalidate)
-    }
-  }, [map])
-  return null
-}
-function ThemeMapTiles() {
-  const [dark, setDark] = useState(document.documentElement.dataset.theme === 'dark')
-  useEffect(() => {
-    const observer = new MutationObserver(() => setDark(document.documentElement.dataset.theme === 'dark'))
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
-    return () => observer.disconnect()
-  }, [])
-  return <TileLayer
-    attribution={dark ? '&copy; OpenStreetMap contributors &copy; CARTO' : '&copy; OpenStreetMap'}
-    url={dark ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png' : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'}
-  />
 }
 function ObjectRow({ item, onSelect }: { item: HousingObject; onSelect: () => void }) {
   const { t } = useTranslation()
@@ -561,10 +513,6 @@ function Dashboard() {
     () => objects.filter((object) => object.latitude != null && object.longitude != null),
     [objects],
   )
-  const mapPoints = useMemo(
-    () => mappableObjects.map((object) => [object.latitude!, object.longitude!] as [number, number]),
-    [mappableObjects],
-  )
   const counts = useMemo(
     () => ({
       red: objects.filter((o) => (o.is_demo || o.score.factors.length > 0) && o.score.zone === 'red').length,
@@ -718,29 +666,9 @@ function Dashboard() {
             <span>{formatNumber(mappableObjects.length)} {t('common.coordinates')}</span>
           </div>
           {mappableObjects.length ? (
-            <MapContainer center={[49.96, 82.61]} zoom={12} scrollWheelZoom className="overview-leaflet-map">
-              <MapSizeInvalidator />
-              <MapViewport points={mapPoints} />
-              <ThemeMapTiles />
-              {mappableObjects.map((object) => (
-                <Marker
-                  key={object.id}
-                  position={[object.latitude!, object.longitude!]}
-                  icon={divIcon({
-                    className: 'zone-marker-icon',
-                    html: `<span class="map-score-marker ${object.is_demo || object.score.factors.length ? moneyZone(object.score.zone) : 'zone-neutral'} ${selectedId === object.id ? 'selected' : ''} ${hoveredId === object.id ? 'hovered' : ''}">${object.is_demo || object.score.factors.length ? formatNumber(object.score.score) : '—'}</span>`,
-                    iconSize: [38, 38],
-                    iconAnchor: [19, 19],
-                  })}
-                  eventHandlers={{ click: () => selectFromMap(object.id) }}
-                >
-                  <Popup>
-                    <strong>{displayName(object.name)}</strong>
-                    <br />{object.is_demo || object.score.factors.length ? `${formatNumber(object.score.score)} ${t('common.points')} · ${zoneName(object.score.zone)}` : t('common.notEvaluated')}
-                  </Popup>
-                </Marker>
-              ))}
-            </MapContainer>
+            <Suspense fallback={<div className="map-empty" role="status">{t('auth.loading')}</div>}>
+              <ObjectMap mappableObjects={mappableObjects} selectedId={selectedId} hoveredId={hoveredId} onSelect={selectFromMap} />
+            </Suspense>
           ) : (
             <div className="map-empty overview-map-empty">
               <div className="map-grid"><span>⌖</span></div>
@@ -1195,155 +1123,6 @@ function SourcesPage() {
     </Shell>
   )
 }
-const TOUR_STEPS = [
-  { target: '[data-tour="queue"]', route: '/', key: 1, action: false },
-  { target: '[data-tour="demo-pill"]', route: '/', key: 2, action: false },
-  { target: '[data-tour="demo-load"]', route: '/', key: 3, action: true },
-  { target: '[data-tour="zone-filters"]', route: '/', key: 4, action: true },
-  { target: '[data-tour="red-object"]', route: '/', key: 5, action: true },
-  { target: '[data-tour="score-breakdown"]', route: '/', key: 6, action: false },
-  { target: '[data-tour="what-if"]', route: '/', key: 7, action: false },
-  { target: '[data-tour="ads-form"]', route: '/ads', key: 8, action: false },
-  { target: '[data-tour="signal-page"]', route: '/signals', key: 9, action: false },
-]
-
-function GuidedTour({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { t } = useTranslation()
-  const navigate = useNavigate()
-  const location = useLocation()
-  const dialogRef = useRef<HTMLDivElement>(null)
-  const [stepIndex, setStepIndex] = useState(0)
-  const [targetRect, setTargetRect] = useState<DOMRect | null>(null)
-  const [missing, setMissing] = useState(false)
-  const advanceRef = useRef<() => void>(() => undefined)
-  const steps = TOUR_STEPS
-  const step = steps[stepIndex]
-  const finish = useCallback(() => {
-    markTourSeen(true)
-    setTargetRect(null)
-    setStepIndex(0)
-    onClose()
-  }, [onClose])
-  const skip = useCallback(() => {
-    markTourSeen()
-    setTargetRect(null)
-    setStepIndex(0)
-    onClose()
-  }, [onClose])
-  const advance = useCallback(() => {
-    setMissing(false)
-    setTargetRect(null)
-    if (stepIndex >= steps.length - 1) finish()
-    else setStepIndex((index) => index + 1)
-  }, [finish, stepIndex, steps.length])
-  useEffect(() => { advanceRef.current = advance }, [advance])
-  const back = useCallback(() => {
-    setMissing(false)
-    setTargetRect(null)
-    setStepIndex((index) => Math.max(0, index - 1))
-  }, [])
-
-  useEffect(() => {
-    if (!open || !step) return
-    if (location.pathname !== step.route) {
-      navigate(step.route)
-      return
-    }
-    let target: Element | null = null
-    let frame = 0
-    let updatePosition: () => void = () => {}
-    const targetClick = () => advanceRef.current()
-    const timer = window.setTimeout(() => {
-      target = document.querySelector(step.target)
-      if (!target) {
-        const jumpTo = skipUnavailableObjectStep(step.key, steps.length - 1)
-        if (jumpTo != null) {
-          setStepIndex(jumpTo)
-          setTargetRect(null)
-          return
-        }
-        setMissing(true)
-        setTargetRect(null)
-        return
-      }
-      target.classList.add('tour-target')
-      target.classList.add(step.action ? 'tour-action-target' : 'tour-passive-target')
-      target.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-      updatePosition = () => setTargetRect(target?.getBoundingClientRect() ?? null)
-      frame = requestAnimationFrame(updatePosition)
-      window.addEventListener('resize', updatePosition)
-      window.addEventListener('scroll', updatePosition, true)
-      if (step.action) target.addEventListener('click', targetClick, { once: true })
-    }, 100)
-    dialogRef.current?.querySelector<HTMLElement>('button')?.focus()
-    return () => {
-      window.clearTimeout(timer)
-      cancelAnimationFrame(frame)
-      window.removeEventListener('resize', updatePosition)
-      window.removeEventListener('scroll', updatePosition, true)
-      target?.removeEventListener('click', targetClick)
-      target?.classList.remove('tour-target')
-      target?.classList.remove('tour-action-target', 'tour-passive-target')
-    }
-  }, [location.pathname, navigate, open, step, steps.length])
-
-  if (!open || !step) return null
-  const scrimRects = tourScrimRects(targetRect, window.innerWidth, window.innerHeight)
-  const popoverStyle: CSSProperties = targetRect
-    ? {
-        top: Math.min(targetRect.bottom + 12, window.innerHeight - 210),
-        left: Math.min(Math.max(12, targetRect.left), window.innerWidth - 352),
-      }
-    : { top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }
-  return (
-    <div className="tour-layer" role="presentation">
-      <div className="tour-scrim" aria-hidden="true">
-        {scrimRects.map((rect, index) => (
-          <span
-            className="tour-scrim-block"
-            key={index}
-            style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
-          />
-        ))}
-      </div>
-      {targetRect && !step.action && (
-        <span
-          className="tour-passive-guard"
-          aria-hidden="true"
-          style={{ left: targetRect.left, top: targetRect.top, width: targetRect.width, height: targetRect.height }}
-        />
-      )}
-      <section
-        className="tour-popover"
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="tour-title"
-        style={popoverStyle}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') { event.preventDefault(); skip() }
-          else if (event.key === 'ArrowRight') { event.preventDefault(); advance() }
-          else if (event.key === 'ArrowLeft') { event.preventDefault(); back() }
-          else if (event.key === 'Tab') {
-            const controls = [...(dialogRef.current?.querySelectorAll<HTMLElement>('button') ?? [])]
-            if (controls.length && event.shiftKey && document.activeElement === controls[0]) { event.preventDefault(); controls[controls.length - 1]?.focus() }
-            else if (controls.length && !event.shiftKey && document.activeElement === controls[controls.length - 1]) { event.preventDefault(); controls[0].focus() }
-          }
-        }}
-      >
-        <div className="tour-count">{t('tour.stepOf', { current: stepIndex + 1, total: steps.length })}</div>
-        <h2 id="tour-title">{t(`tour.step${step.key}.title`)}</h2>
-        <p>{missing ? t('tour.fallback') : t(`tour.step${step.key}.body`)}</p>
-        <strong className="tour-action-hint">{step.action && !missing ? t('tour.clickHere') : t('tour.noAction')}</strong>
-        <div className="tour-controls">
-          <button className="button secondary" onClick={back} disabled={stepIndex === 0}>{t('tour.back')}</button>
-          <button className="button primary" onClick={advance}>{stepIndex === steps.length - 1 ? t('common.done') : t('tour.next')}</button>
-          <button className="tour-skip" onClick={skip}>{t('tour.skip')}</button>
-        </div>
-      </section>
-    </div>
-  )
-}
 function LoginPage({ onLogin }: { onLogin: (user: SessionUser) => void }) {
   const { t } = useTranslation()
   const [username, setUsername] = useState('')
@@ -1410,7 +1189,7 @@ export default function App() {
             <Route path="/sources" element={<SourcesPage />} />
             <Route path="*" element={<button onClick={() => navigate('/')}>{i18n.t('nav.home')}</button>} />
           </Routes>
-          <GuidedTour open={tourOpen} onClose={() => setTourOpen(false)} />
+          <Suspense fallback={null}>{tourOpen && <GuidedTour open={tourOpen} onClose={() => setTourOpen(false)} />}</Suspense>
         </TourStartContext.Provider>
       </div>
     </AuthContext.Provider>
